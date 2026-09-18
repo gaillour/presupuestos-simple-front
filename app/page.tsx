@@ -32,7 +32,7 @@ import {
 } from 'lucide-react'
 import type { Producto, Presupuesto, Tela, Configuracion } from '@/lib/types'
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/api\/?$/, '')
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'https://presupuestos-simple.fly.dev').replace(/\/api\/?$/, '')
 
 const money = new Intl.NumberFormat('es-AR', {
   style: 'currency',
@@ -78,11 +78,6 @@ function LoginView({
         }
       } else {
         const errorData = await res.json().catch(() => null)
-        if (cleanUser === 'admin' && password === 'admin') {
-          onLogin('', 'admin')
-          setLoading(false)
-          return
-        }
         setError(
           errorData?.detail || 'Credenciales incorrectas. Verificá tu usuario y contraseña.'
         )
@@ -90,12 +85,7 @@ function LoginView({
         return
       }
     } catch {
-      if (cleanUser === 'admin' && password === 'admin') {
-        onLogin('', 'admin')
-        setLoading(false)
-        return
-      }
-      setError('No se pudo conectar con el servidor. Verificá tu conexión o ingresá como admin / admin.')
+      setError('No se pudo conectar con el servidor. Si el servidor estaba suspendido, aguardá unos segundos e intentá nuevamente.')
       setLoading(false)
       return
     }
@@ -103,11 +93,30 @@ function LoginView({
     setLoading(false)
   }
 
-  const handleDemo = () => {
+  const handleDemo = async () => {
     setUsername('admin')
     setPassword('admin')
     setError('')
+    setLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'admin', password: 'admin' }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.access_token) {
+          onLogin(data.access_token, data.user?.email || 'admin')
+          setLoading(false)
+          return
+        }
+      }
+    } catch {
+      // Fallback
+    }
     onLogin('', 'admin')
+    setLoading(false)
   }
 
   return (
@@ -2494,11 +2503,18 @@ export default function Page() {
       const savedToken = localStorage.getItem('simple_mdq_token')
       const savedAuth = localStorage.getItem('simple_mdq_auth')
       const savedEmail = localStorage.getItem('simple_mdq_email')
-      if (savedAuth === 'true') {
+      if (savedAuth === 'true' && savedToken) {
         setAuth(true)
-        if (savedToken) setToken(savedToken)
+        setToken(savedToken)
         if (savedEmail) setUserEmail(savedEmail)
-        loadAllData(savedToken || '')
+        loadAllData(savedToken)
+      } else if (savedAuth === 'true' && !savedToken) {
+        setAuth(false)
+        setToken('')
+        setUserEmail('')
+        localStorage.removeItem('simple_mdq_auth')
+        localStorage.removeItem('simple_mdq_token')
+        localStorage.removeItem('simple_mdq_email')
       }
     } catch {}
   }, [loadAllData])
