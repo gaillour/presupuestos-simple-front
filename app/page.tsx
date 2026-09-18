@@ -32,7 +32,7 @@ import {
 } from 'lucide-react'
 import type { Producto, Presupuesto, Tela, Configuracion } from '@/lib/types'
 
-const API_BASE = 'http://localhost:8000'
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/api\/?$/, '')
 
 const money = new Intl.NumberFormat('es-AR', {
   style: 'currency',
