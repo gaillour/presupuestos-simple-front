@@ -1,10 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   AlertCircle,
-  Bell,
   Calculator,
   Check,
   ChevronLeft,
@@ -41,12 +40,132 @@ const money = new Intl.NumberFormat('es-AR', {
 })
 
 /**
- * 1. Pantalla de Login Básico
+ * Devuelve el nombre de saludo personalizado según el email o modo de prueba.
+ */
+function getGreetingName(userEmail: string, isDemo?: boolean): string {
+  if (isDemo) return 'Administrador'
+  const lower = (userEmail || '').toLowerCase().trim()
+  if (!lower || lower === 'administrador' || lower === 'admin' || lower.startsWith('admin@')) {
+    return 'Administrador'
+  }
+  if (lower.includes('romi')) return 'Romi'
+  if (lower.includes('iara')) return 'Iara'
+  if (lower.includes('juan') || lower.includes('juani')) return 'Juani'
+  const localPart = lower.split('@')[0]
+  return localPart.charAt(0).toUpperCase() + localPart.slice(1)
+}
+
+/**
+ * Calcula el precio unitario de un producto aplicando multiplicador y suma (costo fijo) en tiempo real.
+ */
+function calcularPrecioUnitarioProducto(
+  prod: Producto | undefined,
+  multiplicador: number,
+  costoFijo: number
+): number {
+  if (!prod) return 0
+  if (typeof prod.costo_base === 'number') {
+    return prod.costo_base * multiplicador + costoFijo + (prod.costo_estampado || 0)
+  }
+  return prod.precio_venta || 0
+}
+
+/**
+ * Input numérico que permite borrar todos los caracteres mientras se edita,
+ * y si se deja vacío al salir (onBlur), restaura el valor original que tenía antes de editar.
+ */
+function SmartNumberInput({
+  value,
+  onChangeValue,
+  min,
+  step,
+  required,
+  placeholder,
+  className,
+  style,
+  disabled,
+}: {
+  value: number
+  onChangeValue: (val: number) => void
+  min?: number | string
+  step?: number | string
+  required?: boolean
+  placeholder?: string
+  className?: string
+  style?: React.CSSProperties
+  disabled?: boolean
+}) {
+  const [text, setText] = useState<string>(String(value))
+  const [focused, setFocused] = useState(false)
+  const initialValueRef = useRef<number>(value)
+
+  useEffect(() => {
+    if (!focused) {
+      setText(String(value))
+    }
+  }, [value, focused])
+
+  const handleFocus = () => {
+    setFocused(true)
+    initialValueRef.current = value
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value
+    setText(raw)
+
+    if (raw.trim() !== '' && raw !== '-' && raw !== '.') {
+      const parsed = Number(raw)
+      if (!Number.isNaN(parsed)) {
+        onChangeValue(parsed)
+      }
+    }
+  }
+
+  const handleBlur = () => {
+    setFocused(false)
+    const trimmed = text.trim()
+    const parsed = Number(trimmed)
+
+    if (trimmed === '' || Number.isNaN(parsed)) {
+      onChangeValue(initialValueRef.current)
+      setText(String(initialValueRef.current))
+    } else {
+      const minNum = min !== undefined ? Number(min) : undefined
+      const finalVal =
+        minNum !== undefined && !Number.isNaN(minNum) ? Math.max(minNum, parsed) : parsed
+      onChangeValue(finalVal)
+      setText(String(finalVal))
+    }
+  }
+
+  return (
+    <input
+      type="number"
+      step={step}
+      min={min}
+      value={text}
+      onFocus={handleFocus}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      required={required}
+      placeholder={placeholder}
+      className={className}
+      style={style}
+      disabled={disabled}
+    />
+  )
+}
+
+/**
+ * 1. Pantalla de Login
  */
 function LoginView({
   onLogin,
+  onEnterDemo,
 }: {
-  onLogin: (token?: string, userEmail?: string) => void
+  onLogin: (token: string, userEmail: string) => void
+  onEnterDemo: () => void
 }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -58,9 +177,14 @@ function LoginView({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    setLoading(true)
 
     const cleanUser = username.trim()
+    if (password.trim().toLowerCase() === 'admin') {
+      setError('Para ingresar sin cuenta usá el botón de Modo Prueba debajo del formulario.')
+      return
+    }
+
+    setLoading(true)
 
     try {
       const res = await fetch(`${API_BASE}/api/auth/login`, {
@@ -85,37 +209,13 @@ function LoginView({
         return
       }
     } catch {
-      setError('No se pudo conectar con el servidor. Si el servidor estaba suspendido, aguardá unos segundos e intentá nuevamente.')
+      setError(
+        'No se pudo conectar con el servidor. Si el servidor estaba suspendido, aguardá unos segundos e intentá nuevamente.'
+      )
       setLoading(false)
       return
     }
 
-    setLoading(false)
-  }
-
-  const handleDemo = async () => {
-    setUsername('admin')
-    setPassword('admin')
-    setError('')
-    setLoading(true)
-    try {
-      const res = await fetch(`${API_BASE}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'admin', password: 'admin' }),
-      })
-      if (res.ok) {
-        const data = await res.json()
-        if (data.access_token) {
-          onLogin(data.access_token, data.user?.email || 'admin')
-          setLoading(false)
-          return
-        }
-      }
-    } catch {
-      // Fallback
-    }
-    onLogin('', 'admin')
     setLoading(false)
   }
 
@@ -144,7 +244,7 @@ function LoginView({
           )}
 
           <label>
-            Usuario / Email
+            Email o Usuario
             <input
               type="text"
               value={username}
@@ -152,7 +252,7 @@ function LoginView({
                 setUsername(e.target.value)
                 if (error) setError('')
               }}
-              placeholder="admin o usuario@ejemplo.com"
+              placeholder="usuario@simplemdq.com"
               autoFocus
               required
             />
@@ -196,9 +296,11 @@ function LoginView({
           </button>
         </form>
 
-        <button className="demo" type="button" onClick={handleDemo}>
-          Entrar como Demo (admin / admin)
-        </button>
+        <div style={{ marginTop: '16px', borderTop: '1px solid #2b333e', paddingTop: '14px' }}>
+          <button className="demo" type="button" onClick={onEnterDemo} style={{ marginTop: 0 }}>
+            <Eye size={15} /> Ingresar al Portal sin ver datos (Modo Prueba)
+          </button>
+        </div>
       </div>
     </main>
   )
@@ -211,7 +313,11 @@ function Sidebar({
   telasCount,
   productosCount,
   presupuestosCount,
+  displayName,
   userEmail,
+  isDemo,
+  mobileOpen,
+  onCloseMobile,
 }: {
   view: string
   setView: (v: string) => void
@@ -219,7 +325,11 @@ function Sidebar({
   telasCount: number
   productosCount: number
   presupuestosCount: number
+  displayName: string
   userEmail: string
+  isDemo: boolean
+  mobileOpen: boolean
+  onCloseMobile: () => void
 }) {
   const items = [
     [Home, 'Dashboard', 'dashboard'],
@@ -230,46 +340,67 @@ function Sidebar({
     [Settings, 'Configuración General', 'config'],
   ] as const
 
+  const handleNav = (id: string) => {
+    setView(id)
+    onCloseMobile()
+  }
+
   return (
-    <aside className="sidebar">
-      <div className="logo">
-        <span className="brand-mark small">S</span>
-        <div>
-          <strong>SIMPLE MDQ</strong>
-          <small>GESTIÓN TEXTIL</small>
-        </div>
-      </div>
-      <div className="api">
-        <span /> Sistema Conectado
-      </div>
-      <nav>
-        {items.map(([Icon, label, id]) => (
-          <button
-            key={id}
-            className={view === id ? 'nav-item active' : 'nav-item'}
-            onClick={() => setView(id)}
-          >
-            <Icon size={18} />
-            {label}
-            {id === 'catalogo' && productosCount > 0 && <b>{productosCount}</b>}
-            {id === 'telas' && telasCount > 0 && <b>{telasCount}</b>}
-            {id === 'historial' && presupuestosCount > 0 && <b>{presupuestosCount}</b>}
-          </button>
-        ))}
-      </nav>
-      <div className="sidebar-bottom">
-        <div className="profile">
-          <div className="avatar">A</div>
+    <>
+      {mobileOpen && <div className="mobile-backdrop" onClick={onCloseMobile} />}
+      <aside className={mobileOpen ? 'sidebar mobile-open' : 'sidebar'}>
+        <div className="logo">
+          <span className="brand-mark small">S</span>
           <div>
-            <strong>{userEmail || 'Administrador'}</strong>
-            <small>Sesión activa</small>
+            <strong>SIMPLE MDQ</strong>
+            <small>GESTIÓN TEXTIL</small>
           </div>
+          <button
+            type="button"
+            className="icon-btn mobile-close-btn"
+            onClick={onCloseMobile}
+            aria-label="Cerrar menú"
+          >
+            <X size={18} />
+          </button>
         </div>
-        <button className="logout" onClick={onLogout}>
-          <LogOut size={16} /> Cerrar sesión
-        </button>
-      </div>
-    </aside>
+        <div className="api">
+          <span style={{ background: isDemo ? '#f59e0b' : '#31c27c' }} />
+          {isDemo ? 'Modo Prueba (Sin datos)' : 'Sistema Conectado'}
+        </div>
+        <nav>
+          {items.map(([Icon, label, id]) => (
+            <button
+              key={id}
+              className={view === id ? 'nav-item active' : 'nav-item'}
+              onClick={() => handleNav(id)}
+            >
+              <Icon size={18} />
+              {label}
+              {id === 'catalogo' && productosCount > 0 && <b>{productosCount}</b>}
+              {id === 'telas' && telasCount > 0 && <b>{telasCount}</b>}
+              {id === 'historial' && presupuestosCount > 0 && <b>{presupuestosCount}</b>}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-bottom">
+          <div className="profile">
+            <div className="avatar">{displayName.charAt(0).toUpperCase()}</div>
+            <div style={{ minWidth: 0, overflow: 'hidden' }}>
+              <strong style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {displayName}
+              </strong>
+              <small style={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {isDemo ? 'Vista de demostración' : userEmail || 'Sesión activa'}
+              </small>
+            </div>
+          </div>
+          <button className="logout" onClick={onLogout}>
+            <LogOut size={16} /> Cerrar sesión
+          </button>
+        </div>
+      </aside>
+    </>
   )
 }
 
@@ -365,11 +496,10 @@ function CalculatorWidget({
         </label>
         <label>
           Unidades
-          <input
-            type="number"
+          <SmartNumberInput
             min="1"
             value={quantity}
-            onChange={(e) => setQuantity(Math.max(1, Number(e.target.value)))}
+            onChangeValue={(val) => setQuantity(Math.max(1, val))}
           />
         </label>
       </div>
@@ -406,6 +536,7 @@ function Dashboard({
   productos,
   presupuestos,
   config,
+  displayName,
   onSelectPresupuesto,
 }: {
   setView: (v: string) => void
@@ -413,6 +544,7 @@ function Dashboard({
   productos: Producto[]
   presupuestos: Presupuesto[]
   config: Configuracion | null
+  displayName: string
   onSelectPresupuesto: (p: Presupuesto) => void
 }) {
   const totalCotizado = useMemo(() => {
@@ -424,7 +556,7 @@ function Dashboard({
       <div className="welcome">
         <div>
           <p className="eyebrow">PANEL GENERAL</p>
-          <h1>Buen día, Administrador</h1>
+          <h1>Hola, {displayName}</h1>
           <p className="muted">Resumen operativo y comercial de SIMPLE MDQ.</p>
         </div>
         <button className="primary" onClick={() => setView('nuevo')}>
@@ -1298,7 +1430,7 @@ function NuevoPresupuestoView({
     if (existing) {
       setItems(
         items.map((it) =>
-          it.producto_id === productoId ? { ...it, cantidad: it.cantidad + 10 } : it
+          it.producto_id === productoId ? { ...it, cantidad: it.cantidad + 1 } : it
         )
       )
     } else {
@@ -1306,7 +1438,7 @@ function NuevoPresupuestoView({
         ...items,
         {
           producto_id: productoId,
-          cantidad: 20,
+          cantidad: 1,
           detalle_estampado: '',
         },
       ])
@@ -1329,13 +1461,14 @@ function NuevoPresupuestoView({
     for (const it of items) {
       const p = productos.find((prod) => prod.id === it.producto_id)
       if (p) {
+        const unitPrice = calcularPrecioUnitarioProducto(p, multiplicador, costoFijo)
         totalPrendas += it.cantidad
-        totalPrecio += p.precio_venta * it.cantidad
+        totalPrecio += unitPrice * it.cantidad
       }
     }
 
     return { totalPrendas, totalPrecio }
-  }, [items, productos])
+  }, [items, productos, multiplicador, costoFijo])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1444,23 +1577,21 @@ function NuevoPresupuestoView({
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   <label>
                     Multiplicador Comercial
-                    <input
-                      type="number"
+                    <SmartNumberInput
                       step="0.1"
                       min="1"
                       value={multiplicador}
-                      onChange={(e) => setMultiplicador(Number(e.target.value))}
+                      onChangeValue={(val) => setMultiplicador(val)}
                       required
                     />
                   </label>
                   <label>
                     Costo Fijo por Prenda ($)
-                    <input
-                      type="number"
+                    <SmartNumberInput
                       step="100"
                       min="0"
                       value={costoFijo}
-                      onChange={(e) => setCostoFijo(Number(e.target.value))}
+                      onChangeValue={(val) => setCostoFijo(val)}
                       required
                     />
                   </label>
@@ -1488,7 +1619,7 @@ function NuevoPresupuestoView({
                 <div style={{ padding: '0 20px 20px', display: 'grid', gap: '12px' }}>
                   {items.map((it, idx) => {
                     const prod = productos.find((p) => p.id === it.producto_id)
-                    const unitPrice = prod?.precio_venta ?? 0
+                    const unitPrice = calcularPrecioUnitarioProducto(prod, multiplicador, costoFijo)
                     const subtotal = unitPrice * it.cantidad
 
                     return (
@@ -1512,11 +1643,10 @@ function NuevoPresupuestoView({
                           </small>
                         </div>
                         <div style={{ width: '90px' }}>
-                          <input
-                            type="number"
+                          <SmartNumberInput
                             min="1"
                             value={it.cantidad}
-                            onChange={(e) => handleUpdateCantidad(idx, Number(e.target.value))}
+                            onChangeValue={(val) => handleUpdateCantidad(idx, val)}
                           />
                         </div>
                         <div style={{ minWidth: '110px', textAlign: 'right' }}>
@@ -1553,33 +1683,36 @@ function NuevoPresupuestoView({
                     No hay prendas en catálogo.
                   </p>
                 ) : (
-                  productos.map((prod) => (
-                    <div
-                      key={prod.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '10px 12px',
-                        border: '1px solid var(--line)',
-                        borderRadius: '7px',
-                      }}
-                    >
-                      <div>
-                        <strong style={{ fontSize: '12px' }}>{prod.nombre}</strong>
-                        <small style={{ display: 'block', color: 'var(--muted)', fontSize: '11px' }}>
-                          {money.format(prod.precio_venta)}
-                        </small>
-                      </div>
-                      <button
-                        type="button"
-                        className="secondary btn-sm"
-                        onClick={() => handleAddItem(prod.id)}
+                  productos.map((prod) => {
+                    const dynamicPrice = calcularPrecioUnitarioProducto(prod, multiplicador, costoFijo)
+                    return (
+                      <div
+                        key={prod.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '10px 12px',
+                          border: '1px solid var(--line)',
+                          borderRadius: '7px',
+                        }}
                       >
-                        <Plus size={14} /> Agregar
-                      </button>
-                    </div>
-                  ))
+                        <div>
+                          <strong style={{ fontSize: '12px' }}>{prod.nombre}</strong>
+                          <small style={{ display: 'block', color: 'var(--muted)', fontSize: '11px' }}>
+                            {money.format(dynamicPrice)}
+                          </small>
+                        </div>
+                        <button
+                          type="button"
+                          className="secondary btn-sm"
+                          onClick={() => handleAddItem(prod.id)}
+                        >
+                          <Plus size={14} /> Agregar
+                        </button>
+                      </div>
+                    )
+                  })
                 )}
               </div>
             </section>
@@ -1765,12 +1898,11 @@ function ConfiguracionView({
               <div style={{ padding: '0 20px 20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                 <label>
                   Costo Fijo Base por Prenda ($)
-                  <input
-                    type="number"
+                  <SmartNumberInput
                     step="100"
                     min="0"
                     value={costoFijo}
-                    onChange={(e) => setCostoFijo(Number(e.target.value))}
+                    onChangeValue={(val) => setCostoFijo(val)}
                     required
                   />
                   <small style={{ color: 'var(--muted)', fontWeight: 400 }}>
@@ -1780,12 +1912,11 @@ function ConfiguracionView({
 
                 <label>
                   Multiplicador Comercial por Defecto
-                  <input
-                    type="number"
+                  <SmartNumberInput
                     step="0.1"
                     min="1"
                     value={multiplicador}
-                    onChange={(e) => setMultiplicador(Number(e.target.value))}
+                    onChangeValue={(val) => setMultiplicador(val)}
                     required
                   />
                   <small style={{ color: 'var(--muted)', fontWeight: 400 }}>
@@ -1828,45 +1959,41 @@ function ConfiguracionView({
               <div style={{ padding: '0 20px 20px', display: 'grid', gap: '12px' }}>
                 <label>
                   DTF (precio por metro)
-                  <input
-                    type="number"
+                  <SmartNumberInput
                     step="100"
                     min="0"
                     value={precioDtf}
-                    onChange={(e) => setPrecioDtf(Number(e.target.value))}
+                    onChangeValue={(val) => setPrecioDtf(val)}
                   />
                 </label>
 
                 <label>
                   Sublimación (precio por metro)
-                  <input
-                    type="number"
+                  <SmartNumberInput
                     step="100"
                     min="0"
                     value={precioSublimacion}
-                    onChange={(e) => setPrecioSublimacion(Number(e.target.value))}
+                    onChangeValue={(val) => setPrecioSublimacion(val)}
                   />
                 </label>
 
                 <label>
                   Serigrafía (precio por prenda/bajada)
-                  <input
-                    type="number"
+                  <SmartNumberInput
                     step="50"
                     min="0"
                     value={precioSerigrafia}
-                    onChange={(e) => setPrecioSerigrafia(Number(e.target.value))}
+                    onChangeValue={(val) => setPrecioSerigrafia(val)}
                   />
                 </label>
 
                 <label>
                   Bordado (precio unitario base)
-                  <input
-                    type="number"
+                  <SmartNumberInput
                     step="50"
                     min="0"
                     value={precioBordado}
-                    onChange={(e) => setPrecioBordado(Number(e.target.value))}
+                    onChangeValue={(val) => setPrecioBordado(val)}
                   />
                 </label>
 
@@ -1984,24 +2111,22 @@ function ModalTela({
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <label>
               Precio por Kilo ($)
-              <input
-                type="number"
+              <SmartNumberInput
                 step="100"
                 min="0"
                 value={precioKilo}
-                onChange={(e) => setPrecioKilo(Number(e.target.value))}
+                onChangeValue={(val) => setPrecioKilo(val)}
                 required
               />
             </label>
 
             <label>
               Rendimiento (m/kg)
-              <input
-                type="number"
+              <SmartNumberInput
                 step="0.05"
                 min="0.1"
                 value={rendimiento}
-                onChange={(e) => setRendimiento(Number(e.target.value))}
+                onChangeValue={(val) => setRendimiento(val)}
                 required
               />
             </label>
@@ -2185,24 +2310,22 @@ function ModalProducto({
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <label>
               Consumo de Tela (metros)
-              <input
-                type="number"
+              <SmartNumberInput
                 step="0.05"
                 min="0.1"
                 value={consumoMetros}
-                onChange={(e) => setConsumoMetros(Number(e.target.value))}
+                onChangeValue={(val) => setConsumoMetros(val)}
                 required
               />
             </label>
 
             <label>
               Costo Confección / Taller ($)
-              <input
-                type="number"
+              <SmartNumberInput
                 step="100"
                 min="0"
                 value={costoConfeccion}
-                onChange={(e) => setCostoConfeccion(Number(e.target.value))}
+                onChangeValue={(val) => setCostoConfeccion(val)}
                 required
               />
             </label>
@@ -2222,12 +2345,11 @@ function ModalProducto({
 
             <label>
               Consumo de Estampa (m o u.)
-              <input
-                type="number"
+              <SmartNumberInput
                 step="0.05"
                 min="0"
                 value={consumoEstampado}
-                onChange={(e) => setConsumoEstampado(Number(e.target.value))}
+                onChangeValue={(val) => setConsumoEstampado(val)}
               />
             </label>
           </div>
@@ -2245,12 +2367,11 @@ function ModalProducto({
 
             <label>
               Costo Avío ($)
-              <input
-                type="number"
+              <SmartNumberInput
                 step="50"
                 min="0"
                 value={costoAvio}
-                onChange={(e) => setCostoAvio(Number(e.target.value))}
+                onChangeValue={(val) => setCostoAvio(val)}
               />
             </label>
           </div>
@@ -2378,10 +2499,12 @@ function ModalDetallePresupuesto({
 
 export default function Page() {
   const [auth, setAuth] = useState(false)
+  const [isDemo, setIsDemo] = useState(false)
   const [token, setToken] = useState('')
   const [userEmail, setUserEmail] = useState('')
   const [view, setView] = useState('dashboard')
   const [dark, setDark] = useState(true)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   // Estados de datos de la API
   const [telas, setTelas] = useState<Tela[]>([])
@@ -2423,10 +2546,12 @@ export default function Page() {
 
   const fetchTelas = useCallback(
     async (customToken?: string) => {
+      const active = customToken !== undefined ? customToken : token
+      if (!active) return
       setLoadingTelas(true)
       setErrorTelas(null)
       try {
-        const res = await fetch(`${API_BASE}/api/telas`, { headers: getHeaders(customToken) })
+        const res = await fetch(`${API_BASE}/api/telas`, { headers: getHeaders(active) })
         if (!res.ok) throw new Error('Error al obtener telas')
         const data = await res.json()
         setTelas(Array.isArray(data) ? data : [])
@@ -2436,15 +2561,17 @@ export default function Page() {
         setLoadingTelas(false)
       }
     },
-    [getHeaders]
+    [getHeaders, token]
   )
 
   const fetchProductos = useCallback(
     async (customToken?: string) => {
+      const active = customToken !== undefined ? customToken : token
+      if (!active) return
       setLoadingProductos(true)
       setErrorProductos(null)
       try {
-        const res = await fetch(`${API_BASE}/api/productos`, { headers: getHeaders(customToken) })
+        const res = await fetch(`${API_BASE}/api/productos`, { headers: getHeaders(active) })
         if (!res.ok) throw new Error('Error al obtener productos')
         const data = await res.json()
         setProductos(Array.isArray(data) ? data : [])
@@ -2454,15 +2581,17 @@ export default function Page() {
         setLoadingProductos(false)
       }
     },
-    [getHeaders]
+    [getHeaders, token]
   )
 
   const fetchPresupuestos = useCallback(
     async (customToken?: string) => {
+      const active = customToken !== undefined ? customToken : token
+      if (!active) return
       setLoadingPresupuestos(true)
       setErrorPresupuestos(null)
       try {
-        const res = await fetch(`${API_BASE}/api/presupuestos`, { headers: getHeaders(customToken) })
+        const res = await fetch(`${API_BASE}/api/presupuestos`, { headers: getHeaders(active) })
         if (!res.ok) throw new Error('Error al obtener presupuestos')
         const data = await res.json()
         setPresupuestos(Array.isArray(data) ? data : [])
@@ -2472,30 +2601,34 @@ export default function Page() {
         setLoadingPresupuestos(false)
       }
     },
-    [getHeaders]
+    [getHeaders, token]
   )
 
   const fetchConfig = useCallback(
     async (customToken?: string) => {
+      const active = customToken !== undefined ? customToken : token
+      if (!active) return
       try {
-        const res = await fetch(`${API_BASE}/api/configuracion`, { headers: getHeaders(customToken) })
+        const res = await fetch(`${API_BASE}/api/configuracion`, { headers: getHeaders(active) })
         if (res.ok) {
           const data = await res.json()
           setConfig(data)
         }
       } catch {}
     },
-    [getHeaders]
+    [getHeaders, token]
   )
 
   const loadAllData = useCallback(
     (customToken?: string) => {
-      fetchTelas(customToken)
-      fetchProductos(customToken)
-      fetchPresupuestos(customToken)
-      fetchConfig(customToken)
+      const active = customToken !== undefined ? customToken : token
+      if (!active) return
+      fetchTelas(active)
+      fetchProductos(active)
+      fetchPresupuestos(active)
+      fetchConfig(active)
     },
-    [fetchTelas, fetchProductos, fetchPresupuestos, fetchConfig]
+    [fetchTelas, fetchProductos, fetchPresupuestos, fetchConfig, token]
   )
 
   useEffect(() => {
@@ -2505,11 +2638,13 @@ export default function Page() {
       const savedEmail = localStorage.getItem('simple_mdq_email')
       if (savedAuth === 'true' && savedToken) {
         setAuth(true)
+        setIsDemo(false)
         setToken(savedToken)
         if (savedEmail) setUserEmail(savedEmail)
         loadAllData(savedToken)
       } else if (savedAuth === 'true' && !savedToken) {
         setAuth(false)
+        setIsDemo(false)
         setToken('')
         setUserEmail('')
         localStorage.removeItem('simple_mdq_auth')
@@ -2520,13 +2655,14 @@ export default function Page() {
   }, [loadAllData])
 
   useEffect(() => {
-    if (auth) {
-      loadAllData()
+    if (auth && !isDemo && token) {
+      loadAllData(token)
     }
-  }, [auth, loadAllData])
+  }, [auth, isDemo, token, loadAllData])
 
-  const handleLogin = (jwtToken?: string, email?: string) => {
+  const handleLogin = (jwtToken: string, email: string) => {
     setAuth(true)
+    setIsDemo(false)
     const activeToken = jwtToken || ''
     const activeEmail = email || 'Administrador'
     setToken(activeToken)
@@ -2541,13 +2677,34 @@ export default function Page() {
     loadAllData(activeToken)
   }
 
+  const handleEnterDemo = () => {
+    setAuth(true)
+    setIsDemo(true)
+    setToken('')
+    setUserEmail('Administrador')
+    setTelas([])
+    setProductos([])
+    setPresupuestos([])
+    setConfig({
+      costo_fijo: 6000,
+      multiplicador: 2.0,
+      precio_metro_dtf: 0,
+      precio_metro_sublimacion: 0,
+      precio_unidad_serigrafia: 0,
+      precio_unidad_bordado: 0,
+      descripcion_pdf: '',
+    })
+  }
+
   const handleLogout = () => {
     setAuth(false)
+    setIsDemo(false)
     setToken('')
     setUserEmail('')
     setTelas([])
     setProductos([])
     setPresupuestos([])
+    setMobileMenuOpen(false)
     try {
       localStorage.removeItem('simple_mdq_auth')
       localStorage.removeItem('simple_mdq_token')
@@ -2555,8 +2712,24 @@ export default function Page() {
     } catch {}
   }
 
-  // Operaciones CRUD de Telas
+  // Operaciones CRUD de Telas (soportan modo local en Demo y API en modo conectado)
   const handleSaveTela = async (data: { nombre: string; precio_kilo: number; rendimiento: number; descripcion: string }) => {
+    if (isDemo) {
+      const isEdit = editingTela && editingTela !== 'new'
+      const precioMetro = data.rendimiento > 0 ? data.precio_kilo / data.rendimiento : 0
+      if (isEdit) {
+        setTelas(
+          telas.map((t) =>
+            t.id === editingTela.id ? { ...t, ...data, precio_metro: precioMetro } : t
+          )
+        )
+      } else {
+        const nextId = telas.length > 0 ? Math.max(...telas.map((t) => t.id)) + 1 : 1
+        setTelas([...telas, { id: nextId, ...data, precio_metro: precioMetro }])
+      }
+      return
+    }
+
     const isEdit = editingTela && editingTela !== 'new'
     const url = isEdit ? `${API_BASE}/api/telas/${editingTela.id}` : `${API_BASE}/api/telas`
     const method = isEdit ? 'PUT' : 'POST'
@@ -2577,6 +2750,11 @@ export default function Page() {
   }
 
   const handleDeleteTela = async (id: number) => {
+    if (isDemo) {
+      setTelas(telas.filter((t) => t.id !== id))
+      return
+    }
+
     const res = await fetch(`${API_BASE}/api/telas/${id}`, {
       method: 'DELETE',
       headers: getHeaders(),
@@ -2602,6 +2780,57 @@ export default function Page() {
     nombre_avio: string
     costo_avio: number
   }) => {
+    if (isDemo) {
+      const telaObj: Tela = telas.find((t) => t.id === data.tela_id) || {
+        id: data.tela_id,
+        nombre: 'Tela Demo',
+        descripcion: '',
+        precio_kilo: 0,
+        rendimiento: 1,
+        precio_metro: 0,
+      }
+      const costoTela = (telaObj.precio_metro || 0) * data.consumo_metros
+      const costoBase = costoTela + data.costo_confeccion + data.costo_avio
+      const mult = config?.multiplicador ?? 2.0
+      const fijo = config?.costo_fijo ?? 6000
+      const precioVenta = costoBase * mult + fijo
+      const isEdit = editingProducto && editingProducto !== 'new'
+      if (isEdit) {
+        setProductos(
+          productos.map((p) =>
+            p.id === editingProducto.id
+              ? {
+                  ...p,
+                  ...data,
+                  tela: telaObj,
+                  costo_tela: costoTela,
+                  costo_base: costoBase,
+                  costo_estampado: 0,
+                  costo_produccion: costoBase,
+                  precio_venta: precioVenta,
+                }
+              : p
+          )
+        )
+      } else {
+        const nextId = productos.length > 0 ? Math.max(...productos.map((p) => p.id)) + 1 : 1
+        setProductos([
+          ...productos,
+          {
+            id: nextId,
+            ...data,
+            tela: telaObj,
+            costo_tela: costoTela,
+            costo_base: costoBase,
+            costo_estampado: 0,
+            costo_produccion: costoBase,
+            precio_venta: precioVenta,
+          },
+        ])
+      }
+      return
+    }
+
     const isEdit = editingProducto && editingProducto !== 'new'
     const url = isEdit ? `${API_BASE}/api/productos/${editingProducto.id}` : `${API_BASE}/api/productos`
     const method = isEdit ? 'PUT' : 'POST'
@@ -2621,6 +2850,11 @@ export default function Page() {
   }
 
   const handleDeleteProducto = async (id: number) => {
+    if (isDemo) {
+      setProductos(productos.filter((p) => p.id !== id))
+      return
+    }
+
     const res = await fetch(`${API_BASE}/api/productos/${id}`, {
       method: 'DELETE',
       headers: getHeaders(),
@@ -2636,6 +2870,11 @@ export default function Page() {
 
   // Operaciones CRUD de Presupuestos
   const handleDeletePresupuesto = async (id: number) => {
+    if (isDemo) {
+      setPresupuestos(presupuestos.filter((p) => p.id !== id))
+      return
+    }
+
     const res = await fetch(`${API_BASE}/api/presupuestos/${id}`, {
       method: 'DELETE',
       headers: getHeaders(),
@@ -2687,8 +2926,10 @@ export default function Page() {
   }
 
   if (!auth) {
-    return <LoginView onLogin={handleLogin} />
+    return <LoginView onLogin={handleLogin} onEnterDemo={handleEnterDemo} />
   }
+
+  const displayName = getGreetingName(userEmail, isDemo)
 
   return (
     <div className={dark ? 'app dark' : 'app'}>
@@ -2699,11 +2940,20 @@ export default function Page() {
         telasCount={telas.length}
         productosCount={productos.length}
         presupuestosCount={presupuestos.length}
+        displayName={displayName}
         userEmail={userEmail}
+        isDemo={isDemo}
+        mobileOpen={mobileMenuOpen}
+        onCloseMobile={() => setMobileMenuOpen(false)}
       />
       <main className="shell">
         <header className="topbar">
-          <button className="mobile-menu icon-btn">
+          <button
+            type="button"
+            className="mobile-menu icon-btn"
+            onClick={() => setMobileMenuOpen(true)}
+            aria-label="Desplegar barra lateral"
+          >
             <Menu size={18} />
           </button>
           <div className="breadcrumbs">
@@ -2724,14 +2974,6 @@ export default function Page() {
             </strong>
           </div>
           <div className="top-actions">
-            <div className="search">
-              <Search size={16} />
-              <span>Buscar en SIMPLE MDQ</span>
-              <kbd>⌘ K</kbd>
-            </div>
-            <button className="icon-btn">
-              <Bell size={17} />
-            </button>
             <button
               className="icon-btn"
               onClick={() => setDark(!dark)}
@@ -2739,7 +2981,9 @@ export default function Page() {
             >
               {dark ? <Sun size={17} /> : <Moon size={17} />}
             </button>
-            <div className="top-avatar">A</div>
+            <div className="top-avatar" title={displayName}>
+              {displayName.charAt(0).toUpperCase()}
+            </div>
           </div>
         </header>
 
@@ -2751,6 +2995,7 @@ export default function Page() {
               productos={productos}
               presupuestos={presupuestos}
               config={config}
+              displayName={displayName}
               onSelectPresupuesto={setSelectedPresupuesto}
             />
           ) : view === 'catalogo' ? (

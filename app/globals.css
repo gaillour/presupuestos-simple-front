@@ -51,7 +51,10 @@ button {
 /* Sidebar */
 .sidebar {
   width: 250px;
-  min-height: 100vh;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  overflow-y: auto;
   background: var(--surface);
   border-right: 1px solid var(--line);
   padding: 26px 16px 18px;
@@ -59,6 +62,15 @@ button {
   flex-direction: column;
   gap: 18px;
   flex-shrink: 0;
+}
+
+.mobile-close-btn {
+  display: none;
+  margin-left: auto;
+}
+
+.mobile-backdrop {
+  display: none;
 }
 
 .logo {
@@ -799,14 +811,26 @@ input:focus, select:focus, textarea:focus {
 }
 
 .demo {
-  background: transparent;
-  color: #9c91fa;
+  background: rgba(102, 86, 232, 0.12);
+  border: 1px solid rgba(156, 145, 250, 0.35);
+  color: #c4bdff;
   font-size: 12px;
-  margin-top: 17px;
+  font-weight: 600;
+  margin-top: 16px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.15s ease;
 }
 
 .demo:hover {
-  text-decoration: underline;
+  background: rgba(102, 86, 232, 0.22);
+  border-color: rgba(156, 145, 250, 0.6);
+  color: #ffffff;
 }
 
 .login-card input {
@@ -909,10 +933,34 @@ input:focus, select:focus, textarea:focus {
 }
 
 @media (max-width: 640px) {
-  .sidebar { display: none; }
+  .sidebar {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100dvh;
+    width: 260px;
+    z-index: 70;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  }
+  .sidebar.mobile-open {
+    display: flex;
+  }
+  .mobile-close-btn {
+    display: inline-grid;
+  }
+  .mobile-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(2px);
+    z-index: 60;
+  }
   .mobile-menu { display: grid; }
   .topbar { height: 62px; padding: 0 15px; }
-  .breadcrumbs { display: none; }
+  .breadcrumbs { display: flex; font-size: 11px; }
+  .breadcrumbs span, .breadcrumbs svg { display: none; }
   .top-actions { gap: 6px; }
   .page-content { padding: 25px 15px; }
   .welcome { display: block; }
