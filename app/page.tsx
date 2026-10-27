@@ -529,12 +529,14 @@ function Metric({
   note,
   icon: Icon,
   accent,
+  loading = false,
 }: {
   label: string
   value: string
   note: string
   icon: typeof Activity
   accent: string
+  loading?: boolean
 }) {
   return (
     <div className="metric">
@@ -542,8 +544,17 @@ function Metric({
         <Icon size={18} />
       </div>
       <p>{label}</p>
-      <strong>{value}</strong>
-      <small>{note}</small>
+      {loading ? (
+        <>
+          <div className="skeleton-box skeleton-metric-value" />
+          <div className="skeleton-box skeleton-metric-note" />
+        </>
+      ) : (
+        <>
+          <strong>{value}</strong>
+          <small>{note}</small>
+        </>
+      )}
     </div>
   )
 }
@@ -551,9 +562,11 @@ function Metric({
 function CalculatorWidget({
   productos,
   setView,
+  loading = false,
 }: {
   productos: Producto[]
   setView: (v: string) => void
+  loading?: boolean
 }) {
   const [productId, setProductId] = useState<number>(productos[0]?.id ?? 0)
   const [quantity, setQuantity] = useState(15)
@@ -577,15 +590,22 @@ function CalculatorWidget({
           </div>
           <Calculator size={20} />
         </div>
-        <div style={{ padding: '24px 20px', textAlign: 'center', color: 'var(--muted)' }}>
-          <p style={{ margin: '0 0 8px', fontWeight: 600 }}>Sin modelos en catálogo</p>
-          <small style={{ display: 'block', marginBottom: '16px' }}>
-            Los productos cargados en el catálogo aparecerán disponibles para cotizar.
-          </small>
-          <button className="secondary full" onClick={() => setView('telas')}>
-            Ver Telas & Rendimientos
-          </button>
-        </div>
+        {loading ? (
+          <div className="card-loading-center">
+            <RefreshCw size={20} className="animate-spin" />
+            <p style={{ margin: 0 }}>Cargando catálogo para cotizar...</p>
+          </div>
+        ) : (
+          <div style={{ padding: '24px 20px', textAlign: 'center', color: 'var(--muted)' }}>
+            <p style={{ margin: '0 0 8px', fontWeight: 600 }}>Sin modelos en catálogo</p>
+            <small style={{ display: 'block', marginBottom: '16px' }}>
+              Los productos cargados en el catálogo aparecerán disponibles para cotizar.
+            </small>
+            <button className="secondary full" onClick={() => setView('telas')}>
+              Ver Telas & Rendimientos
+            </button>
+          </div>
+        )}
       </section>
     )
   }
@@ -657,6 +677,10 @@ function Dashboard({
   config,
   displayName,
   onSelectPresupuesto,
+  loadingTelas = false,
+  loadingProductos = false,
+  loadingPresupuestos = false,
+  loadingConfig = false,
 }: {
   setView: (v: string) => void
   telas: Tela[]
@@ -665,6 +689,10 @@ function Dashboard({
   config: Configuracion | null
   displayName: string
   onSelectPresupuesto: (p: Presupuesto) => void
+  loadingTelas?: boolean
+  loadingProductos?: boolean
+  loadingPresupuestos?: boolean
+  loadingConfig?: boolean
 }) {
   const totalCotizado = useMemo(() => {
     return presupuestos.reduce((acc, p) => acc + (p.precio_total || 0), 0)
@@ -690,6 +718,7 @@ function Dashboard({
           note="Catálogo de insumos"
           icon={Table2}
           accent="violet"
+          loading={loadingTelas && telas.length === 0}
         />
         <Metric
           label="Prendas en catálogo"
@@ -697,6 +726,7 @@ function Dashboard({
           note="Listos para cotizar"
           icon={Shirt}
           accent="blue"
+          loading={loadingProductos && productos.length === 0}
         />
         <Metric
           label="Presupuestos emitidos"
@@ -704,6 +734,7 @@ function Dashboard({
           note="Historial general"
           icon={Package}
           accent="amber"
+          loading={loadingPresupuestos && presupuestos.length === 0}
         />
         <Metric
           label="Total cotizado"
@@ -711,6 +742,7 @@ function Dashboard({
           note="Suma de presupuestos"
           icon={TrendingUp}
           accent="green"
+          loading={loadingPresupuestos && presupuestos.length === 0}
         />
       </div>
 
@@ -721,10 +753,10 @@ function Dashboard({
               <Plus size={16} /> Generar presupuesto
             </button>
             <button className="secondary" onClick={() => setView('catalogo')}>
-              <Shirt size={16} /> Ver catálogo ({productos.length})
+              <Shirt size={16} /> Ver catálogo ({loadingProductos && productos.length === 0 ? '...' : productos.length})
             </button>
             <button className="secondary" onClick={() => setView('telas')}>
-              <Table2 size={16} /> Telas & Rendimientos ({telas.length})
+              <Table2 size={16} /> Telas & Rendimientos ({loadingTelas && telas.length === 0 ? '...' : telas.length})
             </button>
           </div>
 
@@ -739,7 +771,12 @@ function Dashboard({
               </button>
             </div>
 
-            {presupuestos.length === 0 ? (
+            {loadingPresupuestos && presupuestos.length === 0 ? (
+              <div className="card-loading-center">
+                <RefreshCw size={22} className="animate-spin" />
+                <p style={{ margin: 0 }}>Cargando cotizaciones recientes...</p>
+              </div>
+            ) : presupuestos.length === 0 ? (
               <div style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--muted)' }}>
                 <p style={{ margin: '0 0 6px', fontWeight: 600 }}>No hay presupuestos registrados</p>
                 <small>Las cotizaciones que generes se reflejarán automáticamente en este panel.</small>
@@ -787,7 +824,11 @@ function Dashboard({
         </div>
 
         <div className="right-column">
-          <CalculatorWidget productos={productos} setView={setView} />
+          <CalculatorWidget
+            productos={productos}
+            setView={setView}
+            loading={loadingProductos && productos.length === 0}
+          />
 
           <section className="card supplies">
             <div className="section-heading">
@@ -801,15 +842,19 @@ function Dashboard({
             </div>
 
             {[
-              ['DTF × metro', money.format(config?.precio_metro_dtf ?? 0), 'violet'],
-              ['Sublimación × metro', money.format(config?.precio_metro_sublimacion ?? 0), 'blue'],
-              ['Serigrafía × unidad', money.format(config?.precio_unidad_serigrafia ?? 0), 'amber'],
-              ['Bordado × unidad', money.format(config?.precio_unidad_bordado ?? 0), 'green'],
+              ['DTF × metro', config?.precio_metro_dtf, 'violet'],
+              ['Sublimación × metro', config?.precio_metro_sublimacion, 'blue'],
+              ['Serigrafía × unidad', config?.precio_unidad_serigrafia, 'amber'],
+              ['Bordado × unidad', config?.precio_unidad_bordado, 'green'],
             ].map(([name, price, color]) => (
-              <div className="supply" key={name}>
+              <div className="supply" key={name as string}>
                 <span className={'dot ' + color} />
                 <span>{name}</span>
-                <strong>{price}</strong>
+                {config === null && loadingConfig ? (
+                  <span className="skeleton-box skeleton-supply-price" />
+                ) : (
+                  <strong>{money.format(Number(price ?? 0))}</strong>
+                )}
               </div>
             ))}
 
@@ -820,7 +865,11 @@ function Dashboard({
             >
               <Activity size={15} />
               <span>
-                <strong>{telas.length} telas registradas en catálogo</strong>
+                <strong>
+                  {loadingTelas && telas.length === 0
+                    ? 'Cargando telas en catálogo...'
+                    : `${telas.length} telas registradas en catálogo`}
+                </strong>
                 <small>Hacé clic para revisar rendimientos y costos por kilo.</small>
               </span>
             </div>
@@ -2665,6 +2714,7 @@ export default function Page() {
   const [errorPresupuestos, setErrorPresupuestos] = useState<string | null>(null)
 
   const [config, setConfig] = useState<Configuracion | null>(null)
+  const [loadingConfig, setLoadingConfig] = useState<boolean>(false)
 
   // Estados de modales interactivos
   const [editingTela, setEditingTela] = useState<Tela | null | 'new'>(null)
@@ -2687,6 +2737,10 @@ export default function Page() {
     setTelas([])
     setProductos([])
     setPresupuestos([])
+    setLoadingTelas(false)
+    setLoadingProductos(false)
+    setLoadingPresupuestos(false)
+    setLoadingConfig(false)
     try {
       localStorage.removeItem('simple_mdq_auth')
       localStorage.removeItem('simple_mdq_token')
@@ -2781,6 +2835,7 @@ export default function Page() {
     async (customToken?: string) => {
       const active = customToken !== undefined ? customToken : token
       if (!active) return
+      setLoadingConfig(true)
       try {
         const res = await fetch(`${API_BASE}/api/configuracion`, { headers: getHeaders(active) })
         if (res.status === 401 || res.status === 403) {
@@ -2791,7 +2846,9 @@ export default function Page() {
           const data = await res.json()
           setConfig(data)
         }
-      } catch {}
+      } catch {} finally {
+        setLoadingConfig(false)
+      }
     },
     [getHeaders, token, handleSessionExpired]
   )
@@ -3176,6 +3233,33 @@ export default function Page() {
     setView('nuevo')
   }
 
+  const isSyncing =
+    !isDemo &&
+    auth &&
+    (loadingTelas || loadingProductos || loadingPresupuestos || loadingConfig)
+
+  const isInitialLoading =
+    isSyncing &&
+    telas.length === 0 &&
+    productos.length === 0 &&
+    presupuestos.length === 0
+
+  const [isColdStarting, setIsColdStarting] = useState(false)
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout | undefined
+    if (isInitialLoading) {
+      timer = setTimeout(() => {
+        setIsColdStarting(true)
+      }, 2500)
+    } else {
+      setIsColdStarting(false)
+    }
+    return () => {
+      if (timer) clearTimeout(timer)
+    }
+  }, [isInitialLoading])
+
   if (!auth) {
     return (
       <LoginView
@@ -3231,6 +3315,21 @@ export default function Page() {
             </strong>
           </div>
           <div className="top-actions">
+            {isSyncing && (
+              <div
+                className={`sync-pill ${isColdStarting ? 'cold-start' : ''}`}
+                title={
+                  isColdStarting
+                    ? 'El servidor en la nube se está iniciando tras un período de reposo'
+                    : 'Actualizando datos con el servidor'
+                }
+              >
+                <RefreshCw size={12} className="animate-spin" />
+                <span>
+                  {isColdStarting ? 'Iniciando servidor...' : 'Sincronizando...'}
+                </span>
+              </div>
+            )}
             <button
               className="icon-btn"
               onClick={() => setDark(!dark)}
@@ -3254,6 +3353,10 @@ export default function Page() {
               config={config}
               displayName={displayName}
               onSelectPresupuesto={setSelectedPresupuesto}
+              loadingTelas={loadingTelas}
+              loadingProductos={loadingProductos}
+              loadingPresupuestos={loadingPresupuestos}
+              loadingConfig={loadingConfig}
             />
           ) : view === 'catalogo' ? (
             <CatalogoView

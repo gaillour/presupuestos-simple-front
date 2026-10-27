@@ -401,6 +401,67 @@ nav {
   border-radius: 10px;
 }
 
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.85; }
+}
+
+.skeleton-box {
+  background: var(--surface-2);
+  border-radius: 5px;
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.skeleton-metric-value {
+  width: 90px;
+  height: 24px;
+  margin: 4px 0 6px;
+}
+
+.skeleton-metric-note {
+  width: 110px;
+  height: 12px;
+  margin-top: 8px;
+}
+
+.skeleton-supply-price {
+  width: 65px;
+  height: 16px;
+  display: inline-block;
+}
+
+.sync-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  padding: 4px 11px;
+  border-radius: 9999px;
+  background: rgba(102, 86, 232, 0.12);
+  color: var(--accent);
+  border: 1px solid rgba(102, 86, 232, 0.25);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.sync-pill.cold-start {
+  background: rgba(213, 155, 57, 0.12);
+  color: #e09b2d;
+  border-color: rgba(213, 155, 57, 0.3);
+}
+
+.card-loading-center {
+  padding: 40px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
 .metric {
   padding: 17px 18px;
   position: relative;
