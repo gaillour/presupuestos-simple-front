@@ -56,6 +56,109 @@ function getGreetingName(userEmail: string, isDemo?: boolean): string {
 }
 
 /**
+ * Valida si un JWT está expirado en el cliente antes de consultar la API.
+ */
+function isTokenExpired(jwtToken: string): boolean {
+  if (!jwtToken) return true
+  try {
+    const parts = jwtToken.split('.')
+    if (parts.length !== 3) return false
+    const base64Url = parts[1]
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    )
+    const payload = JSON.parse(jsonPayload)
+    if (typeof payload.exp === 'number') {
+      // Margen de seguridad de 30 segundos
+      return Date.now() >= payload.exp * 1000 - 30000
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Catálogo ficticio de muestra para el Modo Prueba interactivo
+ */
+const DEMO_TELAS: Tela[] = [
+  {
+    id: 101,
+    nombre: 'Algodón 24/1 Peinado',
+    precio_kilo: 12500,
+    rendimiento: 3.2,
+    descripcion: 'Punto liso 100% algodón para remeras premium',
+    precio_metro: 3906.25,
+  },
+  {
+    id: 102,
+    nombre: 'Rústico de Algodón con Lycra',
+    precio_kilo: 15800,
+    rendimiento: 2.1,
+    descripcion: 'Frisa liviana de media estación para buzos y joggers',
+    precio_metro: 7523.81,
+  },
+  {
+    id: 103,
+    nombre: 'Ribb 1x1 Algodón',
+    precio_kilo: 11000,
+    rendimiento: 3.5,
+    descripcion: 'Complemento elastizado para cuellos y puños',
+    precio_metro: 3142.86,
+  },
+]
+
+const DEMO_PRODUCTOS: Producto[] = [
+  {
+    id: 201,
+    nombre: 'Remera Algodón Básica Cuello Redondo',
+    tela: DEMO_TELAS[0],
+    consumo_metros: 0.7,
+    costo_confeccion: 2200,
+    tipo_estampado: 'DTF',
+    consumo_estampado: 0.1,
+    nombre_avio: 'Etiqueta talle',
+    costo_avio: 300,
+    costo_tela: 2734.38,
+    costo_estampado: 1000,
+    costo_base: 6234.38,
+    costo_produccion: 7234.38,
+    precio_venta: 18468.76,
+  },
+  {
+    id: 202,
+    nombre: 'Buzo Canguro Rústico Algodón',
+    tela: DEMO_TELAS[1],
+    consumo_metros: 1.35,
+    costo_confeccion: 3800,
+    tipo_estampado: 'Bordado',
+    consumo_estampado: 2500,
+    nombre_avio: 'Cordón y ojalillos',
+    costo_avio: 1200,
+    costo_tela: 10157.14,
+    costo_estampado: 0,
+    costo_base: 15157.14,
+    costo_produccion: 15157.14,
+    precio_venta: 36314.28,
+  },
+]
+
+const DEMO_PRESUPUESTOS: Presupuesto[] = [
+  {
+    id: 301,
+    cliente_referencia: 'Cliente Demostración (Ejemplo)',
+    multiplicador: 2.0,
+    costo_fijo: 6000,
+    precio_total: 91251.8,
+    created_at: new Date().toISOString(),
+  },
+]
+
+/**
  * Calcula el precio unitario de un producto aplicando multiplicador y suma (costo fijo) en tiempo real.
  */
 function calcularPrecioUnitarioProducto(
@@ -163,9 +266,11 @@ function SmartNumberInput({
 function LoginView({
   onLogin,
   onEnterDemo,
+  notice,
 }: {
   onLogin: (token: string, userEmail: string) => void
   onEnterDemo: () => void
+  notice?: string | null
 }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -228,6 +333,20 @@ function LoginView({
         <p className="muted">Sistema de Gestión & Cotizaciones Textiles</p>
 
         <form onSubmit={handleSubmit}>
+          {notice && !error && (
+            <div
+              className="alert"
+              style={{
+                margin: '0 0 16px',
+                color: '#f59e0b',
+                borderColor: '#f59e0b40',
+                background: '#f59e0b15',
+              }}
+            >
+              <AlertCircle size={15} />
+              <span>{notice}</span>
+            </div>
+          )}
           {error && (
             <div
               className="alert"
@@ -298,7 +417,7 @@ function LoginView({
 
         <div style={{ marginTop: '16px', borderTop: '1px solid #2b333e', paddingTop: '14px' }}>
           <button className="demo" type="button" onClick={onEnterDemo} style={{ marginTop: 0 }}>
-            <Eye size={15} /> Ingresar al Portal sin ver datos (Modo Prueba)
+            <Eye size={15} /> Ingresar al Portal en Modo Prueba (Datos de Ejemplo)
           </button>
         </div>
       </div>
@@ -1378,13 +1497,16 @@ function NuevoPresupuestoView({
   productos,
   config,
   token,
+  isDemo,
   initialData,
   onPresupuestoCreado,
+  onCreateDemoPresupuesto,
   setView,
 }: {
   productos: Producto[]
   config: Configuracion | null
   token: string
+  isDemo?: boolean
   initialData?: {
     cliente: string
     multiplicador: number
@@ -1392,6 +1514,12 @@ function NuevoPresupuestoView({
     items: Array<{ producto_id: number; cantidad: number; detalle_estampado: string }>
   } | null
   onPresupuestoCreado: () => void
+  onCreateDemoPresupuesto?: (
+    cliente: string,
+    multiplicador: number,
+    costoFijo: number,
+    items: Array<{ producto_id: number; cantidad: number }>
+  ) => void
   setView: (v: string) => void
 }) {
   const [cliente, setCliente] = useState(initialData?.cliente ?? '')
@@ -1483,6 +1611,22 @@ function NuevoPresupuestoView({
 
     setError('')
     setSaving(true)
+
+    if (isDemo) {
+      if (onCreateDemoPresupuesto) {
+        onCreateDemoPresupuesto(
+          cliente.trim(),
+          Number(multiplicador),
+          Number(costoFijo),
+          items
+        )
+      } else {
+        onPresupuestoCreado()
+        setView('historial')
+      }
+      setSaving(false)
+      return
+    }
 
     try {
       const headers: Record<string, string> = {
@@ -2502,6 +2646,7 @@ export default function Page() {
   const [isDemo, setIsDemo] = useState(false)
   const [token, setToken] = useState('')
   const [userEmail, setUserEmail] = useState('')
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null)
   const [view, setView] = useState('dashboard')
   const [dark, setDark] = useState(true)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -2534,6 +2679,22 @@ export default function Page() {
     items: Array<{ producto_id: number; cantidad: number; detalle_estampado: string }>
   } | null>(null)
 
+  const handleSessionExpired = useCallback((message?: string) => {
+    setAuth(false)
+    setIsDemo(false)
+    setToken('')
+    setUserEmail('')
+    setTelas([])
+    setProductos([])
+    setPresupuestos([])
+    try {
+      localStorage.removeItem('simple_mdq_auth')
+      localStorage.removeItem('simple_mdq_token')
+      localStorage.removeItem('simple_mdq_email')
+    } catch {}
+    setSessionNotice(message || 'Tu sesión expiró. Por favor, iniciá sesión nuevamente.')
+  }, [])
+
   const getHeaders = useCallback(
     (customToken?: string) => {
       const active = customToken !== undefined ? customToken : token
@@ -2552,6 +2713,10 @@ export default function Page() {
       setErrorTelas(null)
       try {
         const res = await fetch(`${API_BASE}/api/telas`, { headers: getHeaders(active) })
+        if (res.status === 401 || res.status === 403) {
+          handleSessionExpired('Tu sesión expiró. Por favor, iniciá sesión nuevamente.')
+          return
+        }
         if (!res.ok) throw new Error('Error al obtener telas')
         const data = await res.json()
         setTelas(Array.isArray(data) ? data : [])
@@ -2561,7 +2726,7 @@ export default function Page() {
         setLoadingTelas(false)
       }
     },
-    [getHeaders, token]
+    [getHeaders, token, handleSessionExpired]
   )
 
   const fetchProductos = useCallback(
@@ -2572,6 +2737,10 @@ export default function Page() {
       setErrorProductos(null)
       try {
         const res = await fetch(`${API_BASE}/api/productos`, { headers: getHeaders(active) })
+        if (res.status === 401 || res.status === 403) {
+          handleSessionExpired('Tu sesión expiró. Por favor, iniciá sesión nuevamente.')
+          return
+        }
         if (!res.ok) throw new Error('Error al obtener productos')
         const data = await res.json()
         setProductos(Array.isArray(data) ? data : [])
@@ -2581,7 +2750,7 @@ export default function Page() {
         setLoadingProductos(false)
       }
     },
-    [getHeaders, token]
+    [getHeaders, token, handleSessionExpired]
   )
 
   const fetchPresupuestos = useCallback(
@@ -2592,6 +2761,10 @@ export default function Page() {
       setErrorPresupuestos(null)
       try {
         const res = await fetch(`${API_BASE}/api/presupuestos`, { headers: getHeaders(active) })
+        if (res.status === 401 || res.status === 403) {
+          handleSessionExpired('Tu sesión expiró. Por favor, iniciá sesión nuevamente.')
+          return
+        }
         if (!res.ok) throw new Error('Error al obtener presupuestos')
         const data = await res.json()
         setPresupuestos(Array.isArray(data) ? data : [])
@@ -2601,7 +2774,7 @@ export default function Page() {
         setLoadingPresupuestos(false)
       }
     },
-    [getHeaders, token]
+    [getHeaders, token, handleSessionExpired]
   )
 
   const fetchConfig = useCallback(
@@ -2610,13 +2783,17 @@ export default function Page() {
       if (!active) return
       try {
         const res = await fetch(`${API_BASE}/api/configuracion`, { headers: getHeaders(active) })
+        if (res.status === 401 || res.status === 403) {
+          handleSessionExpired('Tu sesión expiró. Por favor, iniciá sesión nuevamente.')
+          return
+        }
         if (res.ok) {
           const data = await res.json()
           setConfig(data)
         }
       } catch {}
     },
-    [getHeaders, token]
+    [getHeaders, token, handleSessionExpired]
   )
 
   const loadAllData = useCallback(
@@ -2637,12 +2814,16 @@ export default function Page() {
       const savedAuth = localStorage.getItem('simple_mdq_auth')
       const savedEmail = localStorage.getItem('simple_mdq_email')
       if (savedAuth === 'true' && savedToken) {
+        if (isTokenExpired(savedToken)) {
+          handleSessionExpired('Tu sesión anterior ha expirado. Por favor, ingresá nuevamente.')
+          return
+        }
         setAuth(true)
         setIsDemo(false)
         setToken(savedToken)
         if (savedEmail) setUserEmail(savedEmail)
         loadAllData(savedToken)
-      } else if (savedAuth === 'true' && !savedToken) {
+      } else {
         setAuth(false)
         setIsDemo(false)
         setToken('')
@@ -2652,7 +2833,7 @@ export default function Page() {
         localStorage.removeItem('simple_mdq_email')
       }
     } catch {}
-  }, [loadAllData])
+  }, [loadAllData, handleSessionExpired])
 
   useEffect(() => {
     if (auth && !isDemo && token) {
@@ -2661,6 +2842,7 @@ export default function Page() {
   }, [auth, isDemo, token, loadAllData])
 
   const handleLogin = (jwtToken: string, email: string) => {
+    setSessionNotice(null)
     setAuth(true)
     setIsDemo(false)
     const activeToken = jwtToken || ''
@@ -2678,25 +2860,27 @@ export default function Page() {
   }
 
   const handleEnterDemo = () => {
+    setSessionNotice(null)
     setAuth(true)
     setIsDemo(true)
     setToken('')
     setUserEmail('Administrador')
-    setTelas([])
-    setProductos([])
-    setPresupuestos([])
+    setTelas(DEMO_TELAS)
+    setProductos(DEMO_PRODUCTOS)
+    setPresupuestos(DEMO_PRESUPUESTOS)
     setConfig({
       costo_fijo: 6000,
       multiplicador: 2.0,
-      precio_metro_dtf: 0,
-      precio_metro_sublimacion: 0,
-      precio_unidad_serigrafia: 0,
-      precio_unidad_bordado: 0,
-      descripcion_pdf: '',
+      precio_metro_dtf: 10000,
+      precio_metro_sublimacion: 2900,
+      precio_unidad_serigrafia: 1500,
+      precio_unidad_bordado: 2500,
+      descripcion_pdf: 'Presupuesto de demostración textil.',
     })
   }
 
   const handleLogout = () => {
+    setSessionNotice(null)
     setAuth(false)
     setIsDemo(false)
     setToken('')
@@ -2740,6 +2924,11 @@ export default function Page() {
       body: JSON.stringify(data),
     })
 
+    if (res.status === 401 || res.status === 403) {
+      handleSessionExpired('Tu sesión expiró. Por favor, iniciá sesión nuevamente.')
+      return
+    }
+
     if (!res.ok) {
       const err = await res.json().catch(() => null)
       throw new Error(err?.detail || 'Error al guardar la tela')
@@ -2759,6 +2948,11 @@ export default function Page() {
       method: 'DELETE',
       headers: getHeaders(),
     })
+
+    if (res.status === 401 || res.status === 403) {
+      handleSessionExpired('Tu sesión expiró. Por favor, iniciá sesión nuevamente.')
+      return
+    }
 
     if (!res.ok) {
       const err = await res.json().catch(() => null)
@@ -2841,6 +3035,11 @@ export default function Page() {
       body: JSON.stringify(data),
     })
 
+    if (res.status === 401 || res.status === 403) {
+      handleSessionExpired('Tu sesión expiró. Por favor, iniciá sesión nuevamente.')
+      return
+    }
+
     if (!res.ok) {
       const err = await res.json().catch(() => null)
       throw new Error(err?.detail || 'Error al guardar el producto')
@@ -2859,6 +3058,11 @@ export default function Page() {
       method: 'DELETE',
       headers: getHeaders(),
     })
+
+    if (res.status === 401 || res.status === 403) {
+      handleSessionExpired('Tu sesión expiró. Por favor, iniciá sesión nuevamente.')
+      return
+    }
 
     if (!res.ok) {
       const err = await res.json().catch(() => null)
@@ -2880,6 +3084,11 @@ export default function Page() {
       headers: getHeaders(),
     })
 
+    if (res.status === 401 || res.status === 403) {
+      handleSessionExpired('Tu sesión expiró. Por favor, iniciá sesión nuevamente.')
+      return
+    }
+
     if (!res.ok) {
       const err = await res.json().catch(() => null)
       throw new Error(err?.detail || 'Error al eliminar el presupuesto')
@@ -2888,11 +3097,53 @@ export default function Page() {
     await fetchPresupuestos()
   }
 
+  const handleCreateDemoPresupuesto = (
+    cliente: string,
+    mult: number,
+    fijo: number,
+    items: Array<{ producto_id: number; cantidad: number }>
+  ) => {
+    let total = 0
+    for (const it of items) {
+      const p = productos.find((prod) => prod.id === it.producto_id)
+      if (p) {
+        total += calcularPrecioUnitarioProducto(p, mult, fijo) * it.cantidad
+      }
+    }
+    const nextId = presupuestos.length > 0 ? Math.max(...presupuestos.map((p) => p.id)) + 1 : 1
+    const nuevo: Presupuesto = {
+      id: nextId,
+      cliente_referencia: cliente,
+      multiplicador: mult,
+      costo_fijo: fijo,
+      precio_total: total,
+      created_at: new Date().toISOString(),
+    }
+    setPresupuestos([nuevo, ...presupuestos])
+    setPresupuestoInitialData(null)
+    setView('historial')
+  }
+
   const handleRecotizarPresupuesto = async (p: Presupuesto) => {
+    if (isDemo) {
+      setPresupuestoInitialData({
+        cliente: p.cliente_referencia,
+        multiplicador: p.multiplicador,
+        costoFijo: p.costo_fijo,
+        items: productos.length > 0 ? [{ producto_id: productos[0].id, cantidad: 10, detalle_estampado: '' }] : [],
+      })
+      setView('nuevo')
+      return
+    }
+
     try {
       const res = await fetch(`${API_BASE}/api/presupuestos/${p.id}`, {
         headers: getHeaders(),
       })
+      if (res.status === 401 || res.status === 403) {
+        handleSessionExpired('Tu sesión expiró. Por favor, iniciá sesión nuevamente.')
+        return
+      }
       if (res.ok) {
         const data = await res.json()
         const detalles = data.detalles || []
@@ -2926,7 +3177,13 @@ export default function Page() {
   }
 
   if (!auth) {
-    return <LoginView onLogin={handleLogin} onEnterDemo={handleEnterDemo} />
+    return (
+      <LoginView
+        onLogin={handleLogin}
+        onEnterDemo={handleEnterDemo}
+        notice={sessionNotice}
+      />
+    )
   }
 
   const displayName = getGreetingName(userEmail, isDemo)
@@ -3023,11 +3280,13 @@ export default function Page() {
               productos={productos}
               config={config}
               token={token}
+              isDemo={isDemo}
               initialData={presupuestoInitialData}
               onPresupuestoCreado={() => {
                 setPresupuestoInitialData(null)
                 fetchPresupuestos()
               }}
+              onCreateDemoPresupuesto={handleCreateDemoPresupuesto}
               setView={setView}
             />
           ) : view === 'historial' ? (
