@@ -12,6 +12,8 @@ export interface Producto {
   nombre: string
   tela: Tela
   consumo_metros: number
+  tela_secundaria?: Tela | null
+  consumo_metros_secundaria?: number
   costo_confeccion: number
   tipo_estampado: string
   consumo_estampado: number

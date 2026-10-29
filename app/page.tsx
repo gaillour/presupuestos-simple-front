@@ -30,12 +30,14 @@ import {
   Zap,
 } from 'lucide-react'
 import type { Producto, Presupuesto, Tela, Configuracion, TipoEstampado } from '@/lib/types'
+import { ConfiguracionView } from '@/components/configuracion/ConfiguracionView'
 import {
-  ConfiguracionView,
   obtenerTecnicasEstampado,
   calcularCostoEstampadoDesdeConfig,
+  calcularCostoTelaCombinada,
+  calcularPrecioUnitarioProducto,
   normalizarTecnica,
-} from '@/components/configuracion/ConfiguracionView'
+} from '@/lib/pricing'
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'https://presupuestos-simple.fly.dev').replace(/\/api\/?$/, '')
 
@@ -163,21 +165,6 @@ const DEMO_PRESUPUESTOS: Presupuesto[] = [
     created_at: new Date().toISOString(),
   },
 ]
-
-/**
- * Calcula el precio unitario de un producto aplicando multiplicador y suma (costo fijo) en tiempo real.
- */
-function calcularPrecioUnitarioProducto(
-  prod: Producto | undefined,
-  multiplicador: number,
-  costoFijo: number
-): number {
-  if (!prod) return 0
-  if (typeof prod.costo_base === 'number') {
-    return prod.costo_base * multiplicador + costoFijo + (prod.costo_estampado || 0)
-  }
-  return prod.precio_venta || 0
-}
 
 /**
  * Input numérico que permite borrar todos los caracteres mientras se edita,
@@ -1135,6 +1122,7 @@ function CatalogoView({
       (p) =>
         p.nombre.toLowerCase().includes(q) ||
         p.tela?.nombre.toLowerCase().includes(q) ||
+        p.tela_secundaria?.nombre.toLowerCase().includes(q) ||
         p.tipo_estampado?.toLowerCase().includes(q)
     )
   }, [productos, search])
@@ -1299,8 +1287,25 @@ function CatalogoView({
                           {money.format(p.tela.precio_metro)} / m
                         </small>
                       ) : null}
+                      {p.tela_secundaria && (p.consumo_metros_secundaria ?? 0) > 0 && (
+                        <div style={{ marginTop: '4px', paddingTop: '4px', borderTop: '1px dashed var(--line)' }}>
+                          <span>+ {p.tela_secundaria.nombre}</span>
+                          {p.tela_secundaria.precio_metro ? (
+                            <small style={{ display: 'block', color: 'var(--muted)' }}>
+                              {money.format(p.tela_secundaria.precio_metro)} / m
+                            </small>
+                          ) : null}
+                        </div>
+                      )}
                     </td>
-                    <td>{p.consumo_metros} m</td>
+                    <td>
+                      <div>{p.consumo_metros} m</div>
+                      {p.tela_secundaria && (p.consumo_metros_secundaria ?? 0) > 0 && (
+                        <small style={{ display: 'block', color: 'var(--muted)', marginTop: '4px' }}>
+                          + {p.consumo_metros_secundaria} m
+                        </small>
+                      )}
+                    </td>
                     <td>{money.format(p.costo_confeccion)}</td>
                     <td>
                       {p.tipo_estampado || 'Ninguno'}
@@ -1838,7 +1843,11 @@ function NuevoPresupuestoView({
                         <div>
                           <strong>{prod?.nombre || `Producto #${it.producto_id}`}</strong>
                           <small style={{ display: 'block', color: 'var(--muted)' }}>
-                            Tela: {prod?.tela?.nombre || 'Estándar'} · {money.format(unitPrice)} u.
+                            Tela: {prod?.tela?.nombre || 'Estándar'}
+                            {prod?.tela_secundaria && (prod?.consumo_metros_secundaria ?? 0) > 0
+                              ? ` + ${prod.tela_secundaria.nombre}`
+                              : ''}{' '}
+                            · {money.format(unitPrice)} u.
                           </small>
                         </div>
                         <div style={{ width: '90px' }}>
@@ -2137,6 +2146,8 @@ function ModalProducto({
     nombre: string
     tela_id: number
     consumo_metros: number
+    tela_secundaria_id: number | null
+    consumo_metros_secundaria: number
     costo_confeccion: number
     tipo_estampado: string
     consumo_estampado: number
@@ -2150,6 +2161,12 @@ function ModalProducto({
   const [nombre, setNombre] = useState(producto?.nombre ?? '')
   const [telaId, setTelaId] = useState<number>(producto?.tela?.id ?? telas[0]?.id ?? 0)
   const [consumoMetros, setConsumoMetros] = useState<number>(producto?.consumo_metros ?? 1.2)
+  const [telaSecundariaId, setTelaSecundariaId] = useState<number>(
+    producto?.tela_secundaria?.id ?? 0
+  )
+  const [consumoMetrosSecundaria, setConsumoMetrosSecundaria] = useState<number>(
+    producto?.consumo_metros_secundaria ?? 0
+  )
   const [costoConfeccion, setCostoConfeccion] = useState<number>(producto?.costo_confeccion ?? 2500)
   const [tipoEstampado, setTipoEstampado] = useState<string>(producto?.tipo_estampado ?? 'Ninguno')
   const [consumoEstampado, setConsumoEstampado] = useState<number>(producto?.consumo_estampado ?? 0)
@@ -2161,12 +2178,17 @@ function ModalProducto({
   const [error, setError] = useState('')
 
   const selectedTela = useMemo(() => telas.find((t) => t.id === telaId), [telas, telaId])
+  const selectedTelaSecundaria = useMemo(
+    () => (telaSecundariaId > 0 ? telas.find((t) => t.id === telaSecundariaId) : undefined),
+    [telas, telaSecundariaId]
+  )
 
-  const precioMetroTela = selectedTela
-    ? selectedTela.precio_metro || (selectedTela.rendimiento > 0 ? selectedTela.precio_kilo / selectedTela.rendimiento : 0)
-    : 0
-
-  const costoTelaEstimado = precioMetroTela * consumoMetros
+  const costoTelaEstimado = calcularCostoTelaCombinada(
+    selectedTela,
+    consumoMetros,
+    telaSecundariaId > 0 ? selectedTelaSecundaria : null,
+    telaSecundariaId > 0 ? consumoMetrosSecundaria : 0
+  )
   const costoBaseEstimado = costoTelaEstimado + costoConfeccion + costoAvio
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -2180,6 +2202,8 @@ function ModalProducto({
       return
     }
 
+    const tieneSegunda = telaSecundariaId > 0 && consumoMetrosSecundaria > 0
+
     setSaving(true)
     setError('')
     try {
@@ -2187,6 +2211,8 @@ function ModalProducto({
         nombre: nombre.trim(),
         tela_id: Number(telaId),
         consumo_metros: Number(consumoMetros),
+        tela_secundaria_id: tieneSegunda ? Number(telaSecundariaId) : null,
+        consumo_metros_secundaria: tieneSegunda ? Number(consumoMetrosSecundaria) : 0,
         costo_confeccion: Number(costoConfeccion),
         tipo_estampado: tipoEstampado,
         consumo_estampado: Number(consumoEstampado),
@@ -2246,29 +2272,67 @@ function ModalProducto({
             />
           </label>
 
-          <label>
-            Tela Asignada
-            <select value={telaId} onChange={(e) => setTelaId(Number(e.target.value))} required>
-              {telas.map((t) => (
-                <option value={t.id} key={t.id}>
-                  {t.nombre} ({money.format(t.precio_kilo)}/kg · {t.rendimiento} m/kg)
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 0.7fr', gap: '12px' }}>
             <label>
-              Consumo de Tela (metros)
+              Tela Principal
+              <select value={telaId} onChange={(e) => setTelaId(Number(e.target.value))} required>
+                {telas.map((t) => (
+                  <option value={t.id} key={t.id}>
+                    {t.nombre} ({money.format(t.precio_kilo)}/kg · {t.rendimiento} m/kg)
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              Consumo Principal (m)
               <SmartNumberInput
                 step="0.05"
-                min="0.1"
+                min="0.05"
                 value={consumoMetros}
                 onChangeValue={(val) => setConsumoMetros(val)}
                 required
               />
             </label>
+          </div>
 
+          <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 0.7fr', gap: '12px' }}>
+            <label>
+              Segunda Tela / Combinación (opcional)
+              <select
+                value={telaSecundariaId}
+                onChange={(e) => {
+                  const id = Number(e.target.value)
+                  setTelaSecundariaId(id)
+                  if (id === 0) {
+                    setConsumoMetrosSecundaria(0)
+                  } else if (consumoMetrosSecundaria <= 0) {
+                    setConsumoMetrosSecundaria(0.2)
+                  }
+                }}
+              >
+                <option value={0}>Ninguna (solo una tela)</option>
+                {telas.map((t) => (
+                  <option value={t.id} key={t.id}>
+                    {t.nombre} ({money.format(t.precio_kilo)}/kg · {t.rendimiento} m/kg)
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              Consumo 2da Tela (m)
+              <SmartNumberInput
+                step="0.05"
+                min="0"
+                value={telaSecundariaId > 0 ? consumoMetrosSecundaria : 0}
+                onChangeValue={(val) => setConsumoMetrosSecundaria(val)}
+                disabled={telaSecundariaId === 0}
+              />
+            </label>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
             <label>
               Costo Confección / Taller ($)
               <SmartNumberInput
@@ -2788,6 +2852,8 @@ export default function Page() {
     nombre: string
     tela_id: number
     consumo_metros: number
+    tela_secundaria_id: number | null
+    consumo_metros_secundaria: number
     costo_confeccion: number
     tipo_estampado: string
     consumo_estampado: number
@@ -2803,7 +2869,13 @@ export default function Page() {
         rendimiento: 1,
         precio_metro: 0,
       }
-      const costoTela = (telaObj.precio_metro || 0) * data.consumo_metros
+      const telaSecObj: Tela | null =
+        data.tela_secundaria_id && data.consumo_metros_secundaria > 0
+          ? telas.find((t) => t.id === data.tela_secundaria_id) || null
+          : null
+      const costoTela =
+        (telaObj.precio_metro || 0) * data.consumo_metros +
+        (telaSecObj ? (telaSecObj.precio_metro || 0) * data.consumo_metros_secundaria : 0)
       const costoBase = costoTela + data.costo_confeccion + data.costo_avio
       const costoEst = calcularCostoEstampadoDesdeConfig(
         data.tipo_estampado,
@@ -2822,6 +2894,8 @@ export default function Page() {
                   ...p,
                   ...data,
                   tela: telaObj,
+                  tela_secundaria: telaSecObj,
+                  consumo_metros_secundaria: telaSecObj ? data.consumo_metros_secundaria : 0,
                   costo_tela: costoTela,
                   costo_base: costoBase,
                   costo_estampado: costoEst,
@@ -2839,6 +2913,8 @@ export default function Page() {
             id: nextId,
             ...data,
             tela: telaObj,
+            tela_secundaria: telaSecObj,
+            consumo_metros_secundaria: telaSecObj ? data.consumo_metros_secundaria : 0,
             costo_tela: costoTela,
             costo_base: costoBase,
             costo_estampado: costoEst,
