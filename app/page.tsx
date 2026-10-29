@@ -29,7 +29,13 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import type { Producto, Presupuesto, Tela, Configuracion } from '@/lib/types'
+import type { Producto, Presupuesto, Tela, Configuracion, TipoEstampado } from '@/lib/types'
+import {
+  ConfiguracionView,
+  obtenerTecnicasEstampado,
+  calcularCostoEstampadoDesdeConfig,
+  normalizarTecnica,
+} from '@/components/configuracion/ConfiguracionView'
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'https://presupuestos-simple.fly.dev').replace(/\/api\/?$/, '')
 
@@ -1953,257 +1959,6 @@ function NuevoPresupuestoView({
 }
 
 /**
- * 6. Sección Configuración General (Editable)
- */
-function ConfiguracionView({
-  config,
-  token,
-  onConfigActualizada,
-  setView,
-}: {
-  config: Configuracion | null
-  token: string
-  onConfigActualizada: () => void
-  setView: (v: string) => void
-}) {
-  const [costoFijo, setCostoFijo] = useState(config?.costo_fijo ?? 6000)
-  const [multiplicador, setMultiplicador] = useState(config?.multiplicador ?? 2.0)
-  const [precioDtf, setPrecioDtf] = useState(config?.precio_metro_dtf ?? 10000)
-  const [precioSublimacion, setPrecioSublimacion] = useState(config?.precio_metro_sublimacion ?? 2900)
-  const [precioSerigrafia, setPrecioSerigrafia] = useState(config?.precio_unidad_serigrafia ?? 1500)
-  const [precioBordado, setPrecioBordado] = useState(config?.precio_unidad_bordado ?? 0)
-  const [descripcionPdf, setDescripcionPdf] = useState(config?.descripcion_pdf ?? '')
-
-  const [saving, setSaving] = useState(false)
-  const [savedSuccess, setSavedSuccess] = useState(false)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    if (config) {
-      setCostoFijo(config.costo_fijo)
-      setMultiplicador(config.multiplicador)
-      setPrecioDtf(config.precio_metro_dtf)
-      setPrecioSublimacion(config.precio_metro_sublimacion)
-      setPrecioSerigrafia(config.precio_unidad_serigrafia)
-      setPrecioBordado(config.precio_unidad_bordado)
-      setDescripcionPdf(config.descripcion_pdf || '')
-    }
-  }, [config])
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setSavedSuccess(false)
-    setSaving(true)
-
-    try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      }
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-      }
-
-      const res = await fetch(`${API_BASE}/api/configuracion`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({
-          costo_fijo: Number(costoFijo),
-          multiplicador: Number(multiplicador),
-          precio_dtf: Number(precioDtf),
-          precio_sublimacion: Number(precioSublimacion),
-          precio_serigrafia: Number(precioSerigrafia),
-          precio_bordado: Number(precioBordado),
-          descripcion_pdf: descripcionPdf,
-        }),
-      })
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => null)
-        throw new Error(data?.detail || 'No se pudo actualizar la configuración.')
-      }
-
-      setSavedSuccess(true)
-      onConfigActualizada()
-    } catch (err: any) {
-      setError(err.message || 'Error al guardar la configuración.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="module-page">
-      <div className="welcome">
-        <div>
-          <p className="eyebrow">PARÁMETROS DEL SISTEMA</p>
-          <h1>Configuración General</h1>
-          <p className="muted">
-            Costos fijos base, multiplicador comercial y precios de técnicas de estampado.
-          </p>
-        </div>
-        <button className="primary" onClick={() => setView('dashboard')}>
-          <ChevronLeft size={16} /> Volver al Dashboard
-        </button>
-      </div>
-
-      {savedSuccess && (
-        <div
-          className="alert"
-          style={{
-            margin: '0 0 20px',
-            background: '#32b8751a',
-            borderColor: '#32b87550',
-            color: 'var(--green)',
-          }}
-        >
-          <Check size={18} />
-          <span>Configuración guardada correctamente y sincronizada en el sistema.</span>
-        </div>
-      )}
-
-      {error && (
-        <div
-          className="alert"
-          style={{
-            margin: '0 0 20px',
-            background: '#ef444415',
-            borderColor: '#ef444440',
-            color: '#f87171',
-          }}
-        >
-          <AlertCircle size={18} />
-          <span>{error}</span>
-        </div>
-      )}
-
-      <form onSubmit={handleSave}>
-        <div className="content-grid">
-          <div className="main-column">
-            <section className="card">
-              <div className="section-heading">
-                <div>
-                  <p className="eyebrow">BASES DE CÁLCULO</p>
-                  <h2>Parámetros Comerciales</h2>
-                </div>
-              </div>
-
-              <div style={{ padding: '0 20px 20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                <label>
-                  Costo Fijo Base por Prenda ($)
-                  <SmartNumberInput
-                    step="100"
-                    min="0"
-                    value={costoFijo}
-                    onChangeValue={(val) => setCostoFijo(val)}
-                    required
-                  />
-                  <small style={{ color: 'var(--muted)', fontWeight: 400 }}>
-                    Monto aplicado a cada prenda para gastos fijos de taller.
-                  </small>
-                </label>
-
-                <label>
-                  Multiplicador Comercial por Defecto
-                  <SmartNumberInput
-                    step="0.1"
-                    min="1"
-                    value={multiplicador}
-                    onChangeValue={(val) => setMultiplicador(val)}
-                    required
-                  />
-                  <small style={{ color: 'var(--muted)', fontWeight: 400 }}>
-                    Margen aplicado sobre el costo de producción total.
-                  </small>
-                </label>
-              </div>
-            </section>
-
-            <section className="card">
-              <div className="section-heading">
-                <div>
-                  <p className="eyebrow">COMPROBANTES</p>
-                  <h2>Leyenda y Condiciones de Presupuesto</h2>
-                </div>
-              </div>
-
-              <div style={{ padding: '0 20px 20px' }}>
-                <label>
-                  Texto al pie del Comprobante PDF
-                  <textarea
-                    rows={4}
-                    value={descripcionPdf}
-                    onChange={(e) => setDescripcionPdf(e.target.value)}
-                  />
-                </label>
-              </div>
-            </section>
-          </div>
-
-          <div className="right-column">
-            <section className="card">
-              <div className="section-heading">
-                <div>
-                  <p className="eyebrow">TÉCNICAS DE ESTAMPA</p>
-                  <h2>Costos Unitarios</h2>
-                </div>
-              </div>
-
-              <div style={{ padding: '0 20px 20px', display: 'grid', gap: '12px' }}>
-                <label>
-                  DTF (precio por metro)
-                  <SmartNumberInput
-                    step="100"
-                    min="0"
-                    value={precioDtf}
-                    onChangeValue={(val) => setPrecioDtf(val)}
-                  />
-                </label>
-
-                <label>
-                  Sublimación (precio por metro)
-                  <SmartNumberInput
-                    step="100"
-                    min="0"
-                    value={precioSublimacion}
-                    onChangeValue={(val) => setPrecioSublimacion(val)}
-                  />
-                </label>
-
-                <label>
-                  Serigrafía (precio por prenda/bajada)
-                  <SmartNumberInput
-                    step="50"
-                    min="0"
-                    value={precioSerigrafia}
-                    onChangeValue={(val) => setPrecioSerigrafia(val)}
-                  />
-                </label>
-
-                <label>
-                  Bordado (precio unitario base)
-                  <SmartNumberInput
-                    step="50"
-                    min="0"
-                    value={precioBordado}
-                    onChangeValue={(val) => setPrecioBordado(val)}
-                  />
-                </label>
-
-                <button type="submit" className="primary full" disabled={saving} style={{ marginTop: '10px' }}>
-                  {saving ? 'Guardando...' : 'Guardar Configuración'}
-                  <Save size={16} />
-                </button>
-              </div>
-            </section>
-          </div>
-        </div>
-      </form>
-    </div>
-  )
-}
-
-/**
  * 7. MODALES DE EDICIÓN Y CREACIÓN (CRUD TOTAL)
  */
 
@@ -2370,12 +2125,14 @@ function ModalTela({
 function ModalProducto({
   producto,
   telas,
+  tiposEstampado,
   onSave,
   onDelete,
   onClose,
 }: {
   producto?: Producto | null
   telas: Tela[]
+  tiposEstampado: TipoEstampado[]
   onSave: (data: {
     nombre: string
     tela_id: number
@@ -2529,10 +2286,16 @@ function ModalProducto({
               Técnica de Estampa
               <select value={tipoEstampado} onChange={(e) => setTipoEstampado(e.target.value)}>
                 <option value="Ninguno">Ninguno</option>
-                <option value="DTF">DTF</option>
-                <option value="Sublimación">Sublimación</option>
-                <option value="Serigrafía">Serigrafía</option>
-                <option value="Bordado">Bordado</option>
+                {tiposEstampado.map((t) => (
+                  <option key={t.id || t.nombre} value={t.nombre}>
+                    {t.nombre}
+                  </option>
+                ))}
+                {tipoEstampado &&
+                  tipoEstampado !== 'Ninguno' &&
+                  !tiposEstampado.some(
+                    (t) => normalizarTecnica(t.nombre) === normalizarTecnica(tipoEstampado)
+                  ) && <option value={tipoEstampado}>{tipoEstampado}</option>}
               </select>
             </label>
 
@@ -3042,9 +2805,14 @@ export default function Page() {
       }
       const costoTela = (telaObj.precio_metro || 0) * data.consumo_metros
       const costoBase = costoTela + data.costo_confeccion + data.costo_avio
+      const costoEst = calcularCostoEstampadoDesdeConfig(
+        data.tipo_estampado,
+        data.consumo_estampado,
+        config
+      )
       const mult = config?.multiplicador ?? 2.0
       const fijo = config?.costo_fijo ?? 6000
-      const precioVenta = costoBase * mult + fijo
+      const precioVenta = costoBase * mult + fijo + costoEst
       const isEdit = editingProducto && editingProducto !== 'new'
       if (isEdit) {
         setProductos(
@@ -3056,8 +2824,8 @@ export default function Page() {
                   tela: telaObj,
                   costo_tela: costoTela,
                   costo_base: costoBase,
-                  costo_estampado: 0,
-                  costo_produccion: costoBase,
+                  costo_estampado: costoEst,
+                  costo_produccion: costoBase + costoEst,
                   precio_venta: precioVenta,
                 }
               : p
@@ -3073,8 +2841,8 @@ export default function Page() {
             tela: telaObj,
             costo_tela: costoTela,
             costo_base: costoBase,
-            costo_estampado: 0,
-            costo_produccion: costoBase,
+            costo_estampado: costoEst,
+            costo_produccion: costoBase + costoEst,
             precio_venta: precioVenta,
           },
         ])
@@ -3271,6 +3039,7 @@ export default function Page() {
   }
 
   const displayName = getGreetingName(userEmail, isDemo)
+  const tiposEstampado = obtenerTecnicasEstampado(config)
 
   return (
     <div className={dark ? 'app dark' : 'app'}>
@@ -3406,7 +3175,35 @@ export default function Page() {
             <ConfiguracionView
               config={config}
               token={token}
-              onConfigActualizada={() => fetchConfig()}
+              isDemo={isDemo}
+              apiBase={API_BASE}
+              onConfigActualizada={(updatedDemoConfig) => {
+                if (isDemo && updatedDemoConfig) {
+                  setConfig(updatedDemoConfig)
+                  setProductos((prev) =>
+                    prev.map((p) => {
+                      const cEst = calcularCostoEstampadoDesdeConfig(
+                        p.tipo_estampado,
+                        p.consumo_estampado,
+                        updatedDemoConfig
+                      )
+                      const pVenta =
+                        p.costo_base * updatedDemoConfig.multiplicador +
+                        updatedDemoConfig.costo_fijo +
+                        cEst
+                      return {
+                        ...p,
+                        costo_estampado: cEst,
+                        costo_produccion: p.costo_base + cEst,
+                        precio_venta: pVenta,
+                      }
+                    })
+                  )
+                  return
+                }
+                fetchConfig()
+                fetchProductos()
+              }}
               setView={setView}
             />
           )}
@@ -3428,6 +3225,7 @@ export default function Page() {
         <ModalProducto
           producto={editingProducto === 'new' ? null : editingProducto}
           telas={telas}
+          tiposEstampado={tiposEstampado}
           onSave={handleSaveProducto}
           onDelete={editingProducto === 'new' ? undefined : handleDeleteProducto}
           onClose={() => setEditingProducto(null)}

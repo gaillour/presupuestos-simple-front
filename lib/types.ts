@@ -50,6 +50,12 @@ export interface PresupuestoDetalle {
   detalles: PresupuestoItem[]
 }
 
+export interface TipoEstampado {
+  id: number
+  nombre: string
+  costo: number
+}
+
 export interface Configuracion {
   costo_fijo: number
   multiplicador: number
@@ -58,12 +64,8 @@ export interface Configuracion {
   precio_unidad_serigrafia: number
   precio_unidad_bordado: number
   descripcion_pdf: string
-}
-
-export interface TipoEstampado {
-  id: number
-  nombre: string
-  costo: number
+  tipos_estampado?: TipoEstampado[]
+  precios_estampado?: Record<string, number>
 }
 
 export interface CalculoPresupuesto {
