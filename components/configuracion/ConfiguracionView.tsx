@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { AlertCircle, Check, ChevronLeft, Plus, Save, Trash2 } from 'lucide-react'
 import type { Configuracion, TipoEstampado } from '@/lib/types'
 import {
@@ -9,6 +9,7 @@ import {
   obtenerTecnicasEstampado,
   calcularCostoEstampadoDesdeConfig,
 } from '@/lib/pricing'
+import { SmartNumberInput } from '@/components/ui/SmartNumberInput'
 
 export {
   TECNICAS_BASE_NOMBRES,
@@ -17,91 +18,9 @@ export {
   calcularCostoEstampadoDesdeConfig,
 }
 
-function SmartNumberInput({
-  value,
-  onChangeValue,
-  min,
-  step,
-  required,
-  placeholder,
-  className,
-  style,
-  disabled,
-}: {
-  value: number
-  onChangeValue: (val: number) => void
-  min?: number | string
-  step?: number | string
-  required?: boolean
-  placeholder?: string
-  className?: string
-  style?: React.CSSProperties
-  disabled?: boolean
-}) {
-  const [text, setText] = useState<string>(String(value))
-  const [focused, setFocused] = useState(false)
-  const initialValueRef = useRef<number>(value)
-
-  useEffect(() => {
-    if (!focused) {
-      setText(String(value))
-    }
-  }, [value, focused])
-
-  const handleFocus = () => {
-    setFocused(true)
-    initialValueRef.current = value
-  }
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value
-    setText(raw)
-
-    if (raw.trim() !== '' && raw !== '-' && raw !== '.') {
-      const parsed = Number(raw)
-      if (!Number.isNaN(parsed)) {
-        onChangeValue(parsed)
-      }
-    }
-  }
-
-  const handleBlur = () => {
-    setFocused(false)
-    const trimmed = text.trim()
-    const parsed = Number(trimmed)
-
-    if (trimmed === '' || Number.isNaN(parsed)) {
-      onChangeValue(initialValueRef.current)
-      setText(String(initialValueRef.current))
-    } else {
-      const minNum = min !== undefined ? Number(min) : undefined
-      const finalVal =
-        minNum !== undefined && !Number.isNaN(minNum) ? Math.max(minNum, parsed) : parsed
-      onChangeValue(finalVal)
-      setText(String(finalVal))
-    }
-  }
-
-  return (
-    <input
-      type="number"
-      step={step}
-      min={min}
-      value={text}
-      onFocus={handleFocus}
-      onChange={handleChange}
-      onBlur={handleBlur}
-      required={required}
-      placeholder={placeholder}
-      className={className}
-      style={style}
-      disabled={disabled}
-    />
-  )
-}
-
 export function ConfiguracionView({
   config,
+  tiposEstampado,
   token,
   isDemo,
   apiBase,
@@ -109,6 +28,7 @@ export function ConfiguracionView({
   setView,
 }: {
   config: Configuracion | null
+  tiposEstampado?: TipoEstampado[]
   token: string
   isDemo?: boolean
   apiBase: string
@@ -118,7 +38,9 @@ export function ConfiguracionView({
   const [costoFijo, setCostoFijo] = useState(config?.costo_fijo ?? 6000)
   const [multiplicador, setMultiplicador] = useState(config?.multiplicador ?? 2.0)
   const [descripcionPdf, setDescripcionPdf] = useState(config?.descripcion_pdf ?? '')
-  const [tecnicas, setTecnicas] = useState<TipoEstampado[]>(() => obtenerTecnicasEstampado(config))
+  const [tecnicas, setTecnicas] = useState<TipoEstampado[]>(() =>
+    obtenerTecnicasEstampado(config, tiposEstampado)
+  )
 
   const [nuevoNombre, setNuevoNombre] = useState('')
   const [nuevoCosto, setNuevoCosto] = useState<number>(0)
@@ -132,10 +54,17 @@ export function ConfiguracionView({
     if (config) {
       setCostoFijo(config.costo_fijo)
       setMultiplicador(config.multiplicador)
-      setDescripcionPdf(config.descripcion_pdf || '')
-      setTecnicas(obtenerTecnicasEstampado(config))
+      setDescripcionPdf(config.descripcion_pdf ?? '')
     }
   }, [config])
+
+  useEffect(() => {
+    if (tiposEstampado && tiposEstampado.length > 0) {
+      setTecnicas(tiposEstampado)
+    } else if (config) {
+      setTecnicas(obtenerTecnicasEstampado(config))
+    }
+  }, [tiposEstampado, config])
 
   const handleUpdateCostoTecnica = (idx: number, nuevoValor: number) => {
     setTecnicas((prev) =>
@@ -190,6 +119,13 @@ export function ConfiguracionView({
         throw new Error(data?.detail || 'No se pudo agregar la técnica.')
       }
 
+      const resData = await res.json().catch(() => null)
+      if (resData?.tipos_estampado && Array.isArray(resData.tipos_estampado)) {
+        setTecnicas(obtenerTecnicasEstampado(config, resData.tipos_estampado))
+      } else if (resData?.tipo_estampado) {
+        setTecnicas((prev) => [...prev, resData.tipo_estampado])
+      }
+
       setNuevoNombre('')
       setNuevoCosto(0)
       setSavedSuccess(true)
@@ -225,7 +161,12 @@ export function ConfiguracionView({
         throw new Error(data?.detail || 'No se pudo eliminar la técnica.')
       }
 
-      setTecnicas((prev) => prev.filter((t) => t.id !== item.id))
+      const resData = await res.json().catch(() => null)
+      if (resData?.tipos_estampado && Array.isArray(resData.tipos_estampado)) {
+        setTecnicas(obtenerTecnicasEstampado(config, resData.tipos_estampado))
+      } else {
+        setTecnicas((prev) => prev.filter((t) => t.id !== item.id))
+      }
       onConfigActualizada()
     } catch (err: any) {
       setError(err.message || 'Error al eliminar la técnica.')
@@ -346,7 +287,6 @@ export function ConfiguracionView({
     <div className="module-page">
       <div className="welcome">
         <div>
-          <p className="eyebrow">PARÁMETROS DEL SISTEMA</p>
           <h1>Configuración General</h1>
           <p className="muted">
             Costos fijos base, multiplicador comercial y precios de técnicas de estampado.
@@ -358,30 +298,14 @@ export function ConfiguracionView({
       </div>
 
       {savedSuccess && (
-        <div
-          className="alert"
-          style={{
-            margin: '0 0 20px',
-            background: '#32b8751a',
-            borderColor: '#32b87550',
-            color: 'var(--green)',
-          }}
-        >
+        <div className="alert alert-success" style={{ margin: '0 0 20px' }}>
           <Check size={18} />
           <span>Configuración guardada correctamente y sincronizada en el sistema.</span>
         </div>
       )}
 
       {error && (
-        <div
-          className="alert"
-          style={{
-            margin: '0 0 20px',
-            background: '#ef444415',
-            borderColor: '#ef444440',
-            color: '#f87171',
-          }}
-        >
+        <div className="alert alert-error" style={{ margin: '0 0 20px' }}>
           <AlertCircle size={18} />
           <span>{error}</span>
         </div>
@@ -392,24 +316,14 @@ export function ConfiguracionView({
           <div className="main-column">
             <section className="card">
               <div className="section-heading">
-                <div>
-                  <p className="eyebrow">BASES DE CÁLCULO</p>
-                  <h2>Parámetros Comerciales</h2>
-                </div>
+                <h2>Parámetros Comerciales</h2>
               </div>
 
-              <div
-                style={{
-                  padding: '0 20px 20px',
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  gap: '14px',
-                }}
-              >
+              <div className="card-body form-grid-2">
                 <label>
                   Costo Fijo Base por Prenda ($)
                   <SmartNumberInput
-                    step="100"
+                    step="any"
                     min="0"
                     value={costoFijo}
                     onChangeValue={(val) => setCostoFijo(val)}
@@ -438,13 +352,10 @@ export function ConfiguracionView({
 
             <section className="card">
               <div className="section-heading">
-                <div>
-                  <p className="eyebrow">COMPROBANTES</p>
-                  <h2>Leyenda y Condiciones de Presupuesto</h2>
-                </div>
+                <h2>Condiciones del Presupuesto</h2>
               </div>
 
-              <div style={{ padding: '0 20px 20px' }}>
+              <div className="card-body">
                 <label>
                   Texto al pie del Comprobante PDF
                   <textarea
@@ -460,13 +371,10 @@ export function ConfiguracionView({
           <div className="right-column">
             <section className="card">
               <div className="section-heading">
-                <div>
-                  <p className="eyebrow">TÉCNICAS DE ESTAMPA</p>
-                  <h2>Costos Unitarios</h2>
-                </div>
+                <h2>Técnicas de Estampa</h2>
               </div>
 
-              <div style={{ padding: '0 20px 20px', display: 'grid', gap: '12px' }}>
+              <div className="card-body" style={{ display: 'grid', gap: '12px' }}>
                 {tecnicas.map((t, idx) => {
                   const esBase = TECNICAS_BASE_NOMBRES.includes(normalizarTecnica(t.nombre))
                   return (
@@ -482,7 +390,7 @@ export function ConfiguracionView({
                       <label>
                         {describirEtiquetaTecnica(t.nombre)}
                         <SmartNumberInput
-                          step="50"
+                          step="any"
                           min="0"
                           value={t.costo}
                           onChangeValue={(val) => handleUpdateCostoTecnica(idx, val)}
@@ -513,7 +421,7 @@ export function ConfiguracionView({
                   }}
                 >
                   <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--muted)' }}>
-                    Agregar nueva técnica de estampa
+                    Agregar nueva técnica
                   </span>
                   <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 0.9fr auto', gap: '8px', alignItems: 'end' }}>
                     <label>
@@ -528,7 +436,7 @@ export function ConfiguracionView({
                     <label>
                       Costo ($)
                       <SmartNumberInput
-                        step="50"
+                        step="any"
                         min="0"
                         value={nuevoCosto}
                         onChangeValue={(val) => setNuevoCosto(val)}

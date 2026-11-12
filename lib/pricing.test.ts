@@ -61,11 +61,28 @@ test('calcularCostoEstampadoDesdeConfig y calcularPrecioUnitarioProducto coincid
   const costoEst = calcularCostoEstampadoDesdeConfig('Corte + Sublimado', 1, config)
   assert.equal(costoEst, 4200)
 
-  // Costo base = 7000, mult = 2.5, fijo = 5000, estampa = 4200 => (7000 * 2.5) + 5000 + 4200 = 26700
+  // Costo base = 7000, mult = 2.5, fijo = 5000, estampa = 4200 => ((7000 + 4200) * 2.5) + 5000 = 33000
   const precioUnit = calcularPrecioUnitarioProducto(
     { costo_base: 7000, costo_estampado: costoEst, precio_venta: 0 },
     2.5,
     5000
   )
-  assert.equal(precioUnit, 26700)
+  assert.equal(precioUnit, 33000)
+
+  // Sin estampa (costo_estampado = 0): (7000 * 2.5) + 5000 = 22500
+  const precioSinEstampa = calcularPrecioUnitarioProducto(
+    { costo_base: 7000, costo_estampado: 0, precio_venta: 0 },
+    2.5,
+    5000
+  )
+  assert.equal(precioSinEstampa, 22500)
+})
+
+test('obtenerTecnicasEstampado prioriza tiposDirectos provenientes de /api/tipos-estampado', () => {
+  const directos = [
+    { id: 9, nombre: 'Vinilo Reflectivo', costo: 8500 },
+  ]
+  const tecnicas = obtenerTecnicasEstampado(null, directos)
+  assert.ok(tecnicas.some((t) => t.nombre === 'Vinilo Reflectivo' && t.costo === 8500))
+  assert.ok(tecnicas.some((t) => t.nombre === 'DTF'))
 })

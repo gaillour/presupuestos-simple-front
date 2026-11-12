@@ -10,7 +10,10 @@ export function normalizarTecnica(texto: string): string {
     .replace(/[\u0300-\u036f]/g, '')
 }
 
-export function obtenerTecnicasEstampado(config: Configuracion | null): TipoEstampado[] {
+export function obtenerTecnicasEstampado(
+  config: Configuracion | null,
+  tiposDirectos?: TipoEstampado[] | null
+): TipoEstampado[] {
   const baseDefaults: Array<{ nombre: string; clave: string; costo: number }> = [
     { nombre: 'DTF', clave: 'dtf', costo: config?.precio_metro_dtf ?? 10000 },
     { nombre: 'Sublimación', clave: 'sublimacion', costo: config?.precio_metro_sublimacion ?? 2900 },
@@ -18,8 +21,14 @@ export function obtenerTecnicasEstampado(config: Configuracion | null): TipoEsta
     { nombre: 'Bordado', clave: 'bordado', costo: config?.precio_unidad_bordado ?? 0 },
   ]
 
-  const desdeApi = Array.isArray(config?.tipos_estampado) ? config!.tipos_estampado! : []
-  if (desdeApi.length === 0) {
+  const fuente =
+    Array.isArray(tiposDirectos) && tiposDirectos.length > 0
+      ? tiposDirectos
+      : Array.isArray(config?.tipos_estampado)
+        ? config!.tipos_estampado!
+        : []
+
+  if (fuente.length === 0) {
     return baseDefaults.map((b, idx) => ({
       id: idx + 1,
       nombre: b.nombre,
@@ -27,7 +36,7 @@ export function obtenerTecnicasEstampado(config: Configuracion | null): TipoEsta
     }))
   }
 
-  const resultado: TipoEstampado[] = desdeApi.map((item, idx) => ({
+  const resultado: TipoEstampado[] = fuente.map((item, idx) => ({
     id: item.id ?? idx + 1,
     nombre: item.nombre,
     costo: Number(item.costo ?? 0),
@@ -53,13 +62,14 @@ export function obtenerTecnicasEstampado(config: Configuracion | null): TipoEsta
 export function calcularCostoEstampadoDesdeConfig(
   tipoEstampado: string,
   consumoEstampado: number,
-  config: Configuracion | null
+  config: Configuracion | null,
+  tiposDirectos?: TipoEstampado[] | null
 ): number {
   if (!tipoEstampado || tipoEstampado === 'Ninguno' || consumoEstampado <= 0) {
     return 0
   }
   const clave = normalizarTecnica(tipoEstampado)
-  const tecnicas = obtenerTecnicasEstampado(config)
+  const tecnicas = obtenerTecnicasEstampado(config, tiposDirectos)
   const encontrada = tecnicas.find((t) => normalizarTecnica(t.nombre) === clave)
   if (encontrada) {
     return consumoEstampado * Number(encontrada.costo || 0)
@@ -99,7 +109,7 @@ export function calcularPrecioUnitarioProducto(
 ): number {
   if (!prod) return 0
   if (typeof prod.costo_base === 'number') {
-    return prod.costo_base * multiplicador + costoFijo + (prod.costo_estampado || 0)
+    return (prod.costo_base + (prod.costo_estampado || 0)) * multiplicador + costoFijo
   }
   return prod.precio_venta || 0
 }

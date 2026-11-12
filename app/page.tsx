@@ -1,2521 +1,33 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Activity,
-  AlertCircle,
-  Calculator,
-  Check,
-  ChevronLeft,
   ChevronRight,
-  Eye,
-  FileDown,
-  Home,
-  LogOut,
   Menu,
   Moon,
-  Package,
-  Pencil,
-  Plus,
   RefreshCw,
-  Save,
-  Search,
-  Settings,
-  Shirt,
   Sun,
-  Table2,
-  Trash2,
-  TrendingUp,
-  X,
-  Zap,
 } from 'lucide-react'
 import type { Producto, Presupuesto, Tela, Configuracion, TipoEstampado } from '@/lib/types'
-import { ConfiguracionView } from '@/components/configuracion/ConfiguracionView'
 import {
   obtenerTecnicasEstampado,
   calcularCostoEstampadoDesdeConfig,
-  calcularCostoTelaCombinada,
   calcularPrecioUnitarioProducto,
-  normalizarTecnica,
 } from '@/lib/pricing'
-
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'https://presupuestos-simple.fly.dev').replace(/\/api\/?$/, '')
-
-const money = new Intl.NumberFormat('es-AR', {
-  style: 'currency',
-  currency: 'ARS',
-  minimumFractionDigits: 2,
-})
-
-/**
- * Devuelve el nombre de saludo personalizado según el email o modo de prueba.
- */
-function getGreetingName(userEmail: string, isDemo?: boolean): string {
-  if (isDemo) return 'Administrador'
-  const lower = (userEmail || '').toLowerCase().trim()
-  if (!lower || lower === 'administrador' || lower === 'admin' || lower.startsWith('admin@')) {
-    return 'Administrador'
-  }
-  if (lower.includes('romi')) return 'Romi'
-  if (lower.includes('iara')) return 'Iara'
-  if (lower.includes('juan') || lower.includes('juani')) return 'Juani'
-  const localPart = lower.split('@')[0]
-  return localPart.charAt(0).toUpperCase() + localPart.slice(1)
-}
-
-/**
- * Valida si un JWT está expirado en el cliente antes de consultar la API.
- */
-function isTokenExpired(jwtToken: string): boolean {
-  if (!jwtToken) return true
-  try {
-    const parts = jwtToken.split('.')
-    if (parts.length !== 3) return false
-    const base64Url = parts[1]
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
-    const jsonPayload = decodeURIComponent(
-      atob(base64)
-        .split('')
-        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-        .join('')
-    )
-    const payload = JSON.parse(jsonPayload)
-    if (typeof payload.exp === 'number') {
-      // Margen de seguridad de 30 segundos
-      return Date.now() >= payload.exp * 1000 - 30000
-    }
-    return false
-  } catch {
-    return false
-  }
-}
-
-/**
- * Catálogo ficticio de muestra para el Modo Prueba interactivo
- */
-const DEMO_TELAS: Tela[] = [
-  {
-    id: 101,
-    nombre: 'Algodón 24/1 Peinado',
-    precio_kilo: 12500,
-    rendimiento: 3.2,
-    descripcion: 'Punto liso 100% algodón para remeras premium',
-    precio_metro: 3906.25,
-  },
-  {
-    id: 102,
-    nombre: 'Rústico de Algodón con Lycra',
-    precio_kilo: 15800,
-    rendimiento: 2.1,
-    descripcion: 'Frisa liviana de media estación para buzos y joggers',
-    precio_metro: 7523.81,
-  },
-  {
-    id: 103,
-    nombre: 'Ribb 1x1 Algodón',
-    precio_kilo: 11000,
-    rendimiento: 3.5,
-    descripcion: 'Complemento elastizado para cuellos y puños',
-    precio_metro: 3142.86,
-  },
-]
-
-const DEMO_PRODUCTOS: Producto[] = [
-  {
-    id: 201,
-    nombre: 'Remera Algodón Básica Cuello Redondo',
-    tela: DEMO_TELAS[0],
-    consumo_metros: 0.7,
-    costo_confeccion: 2200,
-    tipo_estampado: 'DTF',
-    consumo_estampado: 0.1,
-    nombre_avio: 'Etiqueta talle',
-    costo_avio: 300,
-    costo_tela: 2734.38,
-    costo_estampado: 1000,
-    costo_base: 6234.38,
-    costo_produccion: 7234.38,
-    precio_venta: 18468.76,
-  },
-  {
-    id: 202,
-    nombre: 'Buzo Canguro Rústico Algodón',
-    tela: DEMO_TELAS[1],
-    consumo_metros: 1.35,
-    costo_confeccion: 3800,
-    tipo_estampado: 'Bordado',
-    consumo_estampado: 2500,
-    nombre_avio: 'Cordón y ojalillos',
-    costo_avio: 1200,
-    costo_tela: 10157.14,
-    costo_estampado: 0,
-    costo_base: 15157.14,
-    costo_produccion: 15157.14,
-    precio_venta: 36314.28,
-  },
-]
-
-const DEMO_PRESUPUESTOS: Presupuesto[] = [
-  {
-    id: 301,
-    cliente_referencia: 'Cliente Demostración (Ejemplo)',
-    multiplicador: 2.0,
-    costo_fijo: 6000,
-    precio_total: 91251.8,
-    created_at: new Date().toISOString(),
-  },
-]
-
-/**
- * Input numérico que permite borrar todos los caracteres mientras se edita,
- * y si se deja vacío al salir (onBlur), restaura el valor original que tenía antes de editar.
- */
-function SmartNumberInput({
-  value,
-  onChangeValue,
-  min,
-  step,
-  required,
-  placeholder,
-  className,
-  style,
-  disabled,
-}: {
-  value: number
-  onChangeValue: (val: number) => void
-  min?: number | string
-  step?: number | string
-  required?: boolean
-  placeholder?: string
-  className?: string
-  style?: React.CSSProperties
-  disabled?: boolean
-}) {
-  const [text, setText] = useState<string>(String(value))
-  const [focused, setFocused] = useState(false)
-  const initialValueRef = useRef<number>(value)
-
-  useEffect(() => {
-    if (!focused) {
-      setText(String(value))
-    }
-  }, [value, focused])
-
-  const handleFocus = () => {
-    setFocused(true)
-    initialValueRef.current = value
-  }
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value
-    setText(raw)
-
-    if (raw.trim() !== '' && raw !== '-' && raw !== '.') {
-      const parsed = Number(raw)
-      if (!Number.isNaN(parsed)) {
-        onChangeValue(parsed)
-      }
-    }
-  }
-
-  const handleBlur = () => {
-    setFocused(false)
-    const trimmed = text.trim()
-    const parsed = Number(trimmed)
-
-    if (trimmed === '' || Number.isNaN(parsed)) {
-      onChangeValue(initialValueRef.current)
-      setText(String(initialValueRef.current))
-    } else {
-      const minNum = min !== undefined ? Number(min) : undefined
-      const finalVal =
-        minNum !== undefined && !Number.isNaN(minNum) ? Math.max(minNum, parsed) : parsed
-      onChangeValue(finalVal)
-      setText(String(finalVal))
-    }
-  }
-
-  return (
-    <input
-      type="number"
-      step={step}
-      min={min}
-      value={text}
-      onFocus={handleFocus}
-      onChange={handleChange}
-      onBlur={handleBlur}
-      required={required}
-      placeholder={placeholder}
-      className={className}
-      style={style}
-      disabled={disabled}
-    />
-  )
-}
-
-/**
- * 1. Pantalla de Login
- */
-function LoginView({
-  onLogin,
-  onEnterDemo,
-  notice,
-}: {
-  onLogin: (token: string, userEmail: string) => void
-  onEnterDemo: () => void
-  notice?: string | null
-}) {
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [remember, setRemember] = useState(true)
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-
-    const cleanUser = username.trim()
-    if (password.trim().toLowerCase() === 'admin') {
-      setError('Para ingresar sin cuenta usá el botón de Modo Prueba debajo del formulario.')
-      return
-    }
-
-    setLoading(true)
-
-    try {
-      const res = await fetch(`${API_BASE}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanUser, password }),
-      })
-
-      if (res.ok) {
-        const data = await res.json()
-        if (data.access_token) {
-          onLogin(data.access_token, data.user?.email || cleanUser)
-          setLoading(false)
-          return
-        }
-      } else {
-        const errorData = await res.json().catch(() => null)
-        setError(
-          errorData?.detail || 'Credenciales incorrectas. Verificá tu usuario y contraseña.'
-        )
-        setLoading(false)
-        return
-      }
-    } catch {
-      setError(
-        'No se pudo conectar con el servidor. Si el servidor estaba suspendido, aguardá unos segundos e intentá nuevamente.'
-      )
-      setLoading(false)
-      return
-    }
-
-    setLoading(false)
-  }
-
-  return (
-    <main className="login-page">
-      <div className="login-card">
-        <div className="brand-mark">S</div>
-        <p className="eyebrow">SIMPLE MDQ</p>
-        <h1>Bienvenido de nuevo</h1>
-        <p className="muted">Sistema de Gestión & Cotizaciones Textiles</p>
-
-        <form onSubmit={handleSubmit}>
-          {notice && !error && (
-            <div
-              className="alert"
-              style={{
-                margin: '0 0 16px',
-                color: '#f59e0b',
-                borderColor: '#f59e0b40',
-                background: '#f59e0b15',
-              }}
-            >
-              <AlertCircle size={15} />
-              <span>{notice}</span>
-            </div>
-          )}
-          {error && (
-            <div
-              className="alert"
-              style={{
-                margin: '0 0 16px',
-                color: '#f87171',
-                borderColor: '#f8717140',
-                background: '#f8717115',
-              }}
-            >
-              <AlertCircle size={15} />
-              <span>{error}</span>
-            </div>
-          )}
-
-          <label>
-            Email o Usuario
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => {
-                setUsername(e.target.value)
-                if (error) setError('')
-              }}
-              placeholder="usuario@simplemdq.com"
-              autoFocus
-              required
-            />
-          </label>
-
-          <label>
-            Contraseña
-            <div className="password">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value)
-                  if (error) setError('')
-                }}
-                placeholder="Contraseña"
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-              >
-                {showPassword ? 'Ocultar' : 'Mostrar'}
-              </button>
-            </div>
-          </label>
-
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={remember}
-              onChange={(e) => setRemember(e.target.checked)}
-            />{' '}
-            Recordar sesión
-          </label>
-
-          <button className="primary full" type="submit" disabled={loading}>
-            {loading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
-            <Check size={16} />
-          </button>
-        </form>
-
-        <div style={{ marginTop: '16px', borderTop: '1px solid #2b333e', paddingTop: '14px' }}>
-          <button className="demo" type="button" onClick={onEnterDemo} style={{ marginTop: 0 }}>
-            <Eye size={15} /> Ingresar al Portal en Modo Prueba (Datos de Ejemplo)
-          </button>
-        </div>
-      </div>
-    </main>
-  )
-}
-
-function Sidebar({
-  view,
-  setView,
-  onLogout,
-  telasCount,
-  productosCount,
-  presupuestosCount,
-  displayName,
-  userEmail,
-  isDemo,
-  mobileOpen,
-  onCloseMobile,
-}: {
-  view: string
-  setView: (v: string) => void
-  onLogout: () => void
-  telasCount: number
-  productosCount: number
-  presupuestosCount: number
-  displayName: string
-  userEmail: string
-  isDemo: boolean
-  mobileOpen: boolean
-  onCloseMobile: () => void
-}) {
-  const items = [
-    [Home, 'Dashboard', 'dashboard'],
-    [Shirt, 'Catálogo de Productos', 'catalogo'],
-    [Table2, 'Telas & Rendimientos', 'telas'],
-    [Zap, 'Nuevo Presupuesto', 'nuevo'],
-    [FileDown, 'Historial de Presupuestos', 'historial'],
-    [Settings, 'Configuración General', 'config'],
-  ] as const
-
-  const handleNav = (id: string) => {
-    setView(id)
-    onCloseMobile()
-  }
-
-  return (
-    <>
-      {mobileOpen && <div className="mobile-backdrop" onClick={onCloseMobile} />}
-      <aside className={mobileOpen ? 'sidebar mobile-open' : 'sidebar'}>
-        <div className="logo">
-          <span className="brand-mark small">S</span>
-          <div>
-            <strong>SIMPLE MDQ</strong>
-            <small>GESTIÓN TEXTIL</small>
-          </div>
-          <button
-            type="button"
-            className="icon-btn mobile-close-btn"
-            onClick={onCloseMobile}
-            aria-label="Cerrar menú"
-          >
-            <X size={18} />
-          </button>
-        </div>
-        <div className="api">
-          <span style={{ background: isDemo ? '#f59e0b' : '#31c27c' }} />
-          {isDemo ? 'Modo Prueba (Sin datos)' : 'Sistema Conectado'}
-        </div>
-        <nav>
-          {items.map(([Icon, label, id]) => (
-            <button
-              key={id}
-              className={view === id ? 'nav-item active' : 'nav-item'}
-              onClick={() => handleNav(id)}
-            >
-              <Icon size={18} />
-              {label}
-              {id === 'catalogo' && productosCount > 0 && <b>{productosCount}</b>}
-              {id === 'telas' && telasCount > 0 && <b>{telasCount}</b>}
-              {id === 'historial' && presupuestosCount > 0 && <b>{presupuestosCount}</b>}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <div className="profile">
-            <div className="avatar">{displayName.charAt(0).toUpperCase()}</div>
-            <div style={{ minWidth: 0, overflow: 'hidden' }}>
-              <strong style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {displayName}
-              </strong>
-              <small style={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {isDemo ? 'Vista de demostración' : userEmail || 'Sesión activa'}
-              </small>
-            </div>
-          </div>
-          <button className="logout" onClick={onLogout}>
-            <LogOut size={16} /> Cerrar sesión
-          </button>
-        </div>
-      </aside>
-    </>
-  )
-}
-
-function Metric({
-  label,
-  value,
-  note,
-  icon: Icon,
-  accent,
-  loading = false,
-}: {
-  label: string
-  value: string
-  note: string
-  icon: typeof Activity
-  accent: string
-  loading?: boolean
-}) {
-  return (
-    <div className="metric">
-      <div className={'metric-icon ' + accent}>
-        <Icon size={18} />
-      </div>
-      <p>{label}</p>
-      {loading ? (
-        <>
-          <div className="skeleton-box skeleton-metric-value" />
-          <div className="skeleton-box skeleton-metric-note" />
-        </>
-      ) : (
-        <>
-          <strong>{value}</strong>
-          <small>{note}</small>
-        </>
-      )}
-    </div>
-  )
-}
-
-function CalculatorWidget({
-  productos,
-  setView,
-  loading = false,
-}: {
-  productos: Producto[]
-  setView: (v: string) => void
-  loading?: boolean
-}) {
-  const [productId, setProductId] = useState<number>(productos[0]?.id ?? 0)
-  const [quantity, setQuantity] = useState(15)
-
-  useEffect(() => {
-    if (productos.length > 0 && (!productId || !productos.some((p) => p.id === productId))) {
-      setProductId(productos[0].id)
-    }
-  }, [productos, productId])
-
-  const product = productos.find((p) => p.id === productId) ?? productos[0]
-  const total = product ? product.precio_venta * quantity : 0
-
-  if (productos.length === 0) {
-    return (
-      <section className="card calculator">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">COTIZADOR RÁPIDO</p>
-            <h2>Simulá una cotización</h2>
-          </div>
-          <Calculator size={20} />
-        </div>
-        {loading ? (
-          <div className="card-loading-center">
-            <RefreshCw size={20} className="animate-spin" />
-            <p style={{ margin: 0 }}>Cargando catálogo para cotizar...</p>
-          </div>
-        ) : (
-          <div style={{ padding: '24px 20px', textAlign: 'center', color: 'var(--muted)' }}>
-            <p style={{ margin: '0 0 8px', fontWeight: 600 }}>Sin modelos en catálogo</p>
-            <small style={{ display: 'block', marginBottom: '16px' }}>
-              Los productos cargados en el catálogo aparecerán disponibles para cotizar.
-            </small>
-            <button className="secondary full" onClick={() => setView('telas')}>
-              Ver Telas & Rendimientos
-            </button>
-          </div>
-        )}
-      </section>
-    )
-  }
-
-  return (
-    <section className="card calculator">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">COTIZADOR RÁPIDO</p>
-          <h2>Simulá una cotización</h2>
-        </div>
-        <Calculator size={20} />
-      </div>
-      <div className="form-row">
-        <label>
-          Prenda
-          <select
-            value={productId}
-            onChange={(e) => setProductId(Number(e.target.value))}
-          >
-            {productos.map((p) => (
-              <option value={p.id} key={p.id}>
-                {p.nombre}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Unidades
-          <SmartNumberInput
-            min="1"
-            value={quantity}
-            onChangeValue={(val) => setQuantity(Math.max(1, val))}
-          />
-        </label>
-      </div>
-      <div className="calc-breakdown">
-        <div>
-          <span>Costo base + tela</span>
-          <strong>{money.format(product.costo_base)}</strong>
-        </div>
-        <div>
-          <span>Estampa ({product.tipo_estampado})</span>
-          <strong>{money.format(product.costo_estampado)}</strong>
-        </div>
-        <div>
-          <span>Precio unitario final</span>
-          <strong className="green">{money.format(product.precio_venta)}</strong>
-        </div>
-      </div>
-      <div className="calc-total">
-        <span>
-          Total estimado <small>{quantity} unidades</small>
-        </span>
-        <strong>{money.format(total)}</strong>
-      </div>
-      <button className="primary full" onClick={() => setView('nuevo')}>
-        <Plus size={16} /> Pasar a presupuesto formal
-      </button>
-    </section>
-  )
-}
-
-function Dashboard({
-  setView,
-  telas,
-  productos,
-  presupuestos,
-  config,
-  displayName,
-  onSelectPresupuesto,
-  loadingTelas = false,
-  loadingProductos = false,
-  loadingPresupuestos = false,
-  loadingConfig = false,
-}: {
-  setView: (v: string) => void
-  telas: Tela[]
-  productos: Producto[]
-  presupuestos: Presupuesto[]
-  config: Configuracion | null
-  displayName: string
-  onSelectPresupuesto: (p: Presupuesto) => void
-  loadingTelas?: boolean
-  loadingProductos?: boolean
-  loadingPresupuestos?: boolean
-  loadingConfig?: boolean
-}) {
-  const totalCotizado = useMemo(() => {
-    return presupuestos.reduce((acc, p) => acc + (p.precio_total || 0), 0)
-  }, [presupuestos])
-
-  return (
-    <>
-      <div className="welcome">
-        <div>
-          <p className="eyebrow">PANEL GENERAL</p>
-          <h1>Hola, {displayName}</h1>
-          <p className="muted">Resumen operativo y comercial de SIMPLE MDQ.</p>
-        </div>
-        <button className="primary" onClick={() => setView('nuevo')}>
-          <Plus size={17} /> Nueva cotización
-        </button>
-      </div>
-
-      <div className="metrics">
-        <Metric
-          label="Telas registradas"
-          value={`${telas.length} telas`}
-          note="Catálogo de insumos"
-          icon={Table2}
-          accent="violet"
-          loading={loadingTelas && telas.length === 0}
-        />
-        <Metric
-          label="Prendas en catálogo"
-          value={`${productos.length} modelos`}
-          note="Listos para cotizar"
-          icon={Shirt}
-          accent="blue"
-          loading={loadingProductos && productos.length === 0}
-        />
-        <Metric
-          label="Presupuestos emitidos"
-          value={`${presupuestos.length} cotizaciones`}
-          note="Historial general"
-          icon={Package}
-          accent="amber"
-          loading={loadingPresupuestos && presupuestos.length === 0}
-        />
-        <Metric
-          label="Total cotizado"
-          value={money.format(totalCotizado)}
-          note="Suma de presupuestos"
-          icon={TrendingUp}
-          accent="green"
-          loading={loadingPresupuestos && presupuestos.length === 0}
-        />
-      </div>
-
-      <div className="content-grid">
-        <div className="main-column">
-          <div className="quick-actions">
-            <button className="primary" onClick={() => setView('nuevo')}>
-              <Plus size={16} /> Generar presupuesto
-            </button>
-            <button className="secondary" onClick={() => setView('catalogo')}>
-              <Shirt size={16} /> Ver catálogo ({loadingProductos && productos.length === 0 ? '...' : productos.length})
-            </button>
-            <button className="secondary" onClick={() => setView('telas')}>
-              <Table2 size={16} /> Telas & Rendimientos ({loadingTelas && telas.length === 0 ? '...' : telas.length})
-            </button>
-          </div>
-
-          <section className="card">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">ACTIVIDAD RECIENTE</p>
-                <h2>Últimos presupuestos</h2>
-              </div>
-              <button className="link" onClick={() => setView('historial')}>
-                Ver historial completo <ChevronRight size={14} />
-              </button>
-            </div>
-
-            {loadingPresupuestos && presupuestos.length === 0 ? (
-              <div className="card-loading-center">
-                <RefreshCw size={22} className="animate-spin" />
-                <p style={{ margin: 0 }}>Cargando cotizaciones recientes...</p>
-              </div>
-            ) : presupuestos.length === 0 ? (
-              <div style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--muted)' }}>
-                <p style={{ margin: '0 0 6px', fontWeight: 600 }}>No hay presupuestos registrados</p>
-                <small>Las cotizaciones que generes se reflejarán automáticamente en este panel.</small>
-              </div>
-            ) : (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th># ID</th>
-                      <th>Cliente</th>
-                      <th>Fecha</th>
-                      <th>Multiplicador</th>
-                      <th>Total</th>
-                      <th>Acción</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {presupuestos.slice(0, 6).map((q) => (
-                      <tr key={q.id}>
-                        <td className="id">#{q.id}</td>
-                        <td>
-                          <strong>{q.cliente_referencia}</strong>
-                        </td>
-                        <td>{new Date(q.created_at).toLocaleDateString('es-AR')}</td>
-                        <td>{Number(q.multiplicador).toFixed(1)}x</td>
-                        <td>
-                          <strong>{money.format(q.precio_total)}</strong>
-                        </td>
-                        <td>
-                          <button
-                            className="secondary btn-sm"
-                            onClick={() => onSelectPresupuesto(q)}
-                          >
-                            <Eye size={13} /> Ver Detalle
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        </div>
-
-        <div className="right-column">
-          <CalculatorWidget
-            productos={productos}
-            setView={setView}
-            loading={loadingProductos && productos.length === 0}
-          />
-
-          <section className="card supplies">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">INSUMOS & TÉCNICAS</p>
-                <h2>Costos vigentes</h2>
-              </div>
-              <button className="icon-btn" onClick={() => setView('config')} title="Editar costos">
-                <Pencil size={15} />
-              </button>
-            </div>
-
-            {[
-              ['DTF × metro', config?.precio_metro_dtf, 'violet'],
-              ['Sublimación × metro', config?.precio_metro_sublimacion, 'blue'],
-              ['Serigrafía × unidad', config?.precio_unidad_serigrafia, 'amber'],
-              ['Bordado × unidad', config?.precio_unidad_bordado, 'green'],
-            ].map(([name, price, color]) => (
-              <div className="supply" key={name as string}>
-                <span className={'dot ' + color} />
-                <span>{name}</span>
-                {config === null && loadingConfig ? (
-                  <span className="skeleton-box skeleton-supply-price" />
-                ) : (
-                  <strong>{money.format(Number(price ?? 0))}</strong>
-                )}
-              </div>
-            ))}
-
-            <div
-              className="alert"
-              onClick={() => setView('telas')}
-              style={{ cursor: 'pointer', margin: '14px 20px' }}
-            >
-              <Activity size={15} />
-              <span>
-                <strong>
-                  {loadingTelas && telas.length === 0
-                    ? 'Cargando telas en catálogo...'
-                    : `${telas.length} telas registradas en catálogo`}
-                </strong>
-                <small>Hacé clic para revisar rendimientos y costos por kilo.</small>
-              </span>
-            </div>
-          </section>
-        </div>
-      </div>
-    </>
-  )
-}
-
-/**
- * 2. Sección Telas & Rendimientos (Con edición completa)
- */
-function TelasView({
-  telas,
-  loading,
-  error,
-  onReload,
-  onEditTela,
-  onNewTela,
-  setView,
-}: {
-  telas: Tela[]
-  loading: boolean
-  error: string | null
-  onReload: () => void
-  onEditTela: (tela: Tela) => void
-  onNewTela: () => void
-  setView: (v: string) => void
-}) {
-  const [search, setSearch] = useState('')
-
-  const filteredTelas = useMemo(() => {
-    if (!search.trim()) return telas
-    const q = search.toLowerCase()
-    return telas.filter(
-      (t) =>
-        t.nombre?.toLowerCase().includes(q) ||
-        (t.descripcion && t.descripcion.toLowerCase().includes(q))
-    )
-  }, [telas, search])
-
-  const precioPromedioKilo = useMemo(() => {
-    if (telas.length === 0) return 0
-    const sum = telas.reduce((acc, t) => acc + (Number(t.precio_kilo) || 0), 0)
-    return sum / telas.length
-  }, [telas])
-
-  const rendimientoPromedio = useMemo(() => {
-    if (telas.length === 0) return 0
-    const sum = telas.reduce((acc, t) => acc + (Number(t.rendimiento) || 0), 0)
-    return sum / telas.length
-  }, [telas])
-
-  return (
-    <div className="module-page">
-      <div className="welcome">
-        <div>
-          <p className="eyebrow">INSUMOS & RENDIMIENTOS</p>
-          <h1>Telas & Rendimientos</h1>
-          <p className="muted">
-            Costos por kilo, rendimientos y cálculo del costo por metro para corte y confección.
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button className="secondary" onClick={onReload} disabled={loading}>
-            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
-            {loading ? 'Actualizando...' : 'Actualizar'}
-          </button>
-          <button className="primary" onClick={onNewTela}>
-            <Plus size={16} /> Nueva Tela
-          </button>
-        </div>
-      </div>
-
-      <div className="metrics">
-        <Metric
-          label="Telas en catálogo"
-          value={`${telas.length} telas`}
-          note="Insumos activos"
-          icon={Table2}
-          accent="violet"
-        />
-        <Metric
-          label="Precio Promedio / Kg"
-          value={money.format(precioPromedioKilo)}
-          note="Base textil"
-          icon={TrendingUp}
-          accent="blue"
-        />
-        <Metric
-          label="Rendimiento Promedio"
-          value={rendimientoPromedio > 0 ? `${rendimientoPromedio.toFixed(2)} m/kg` : '-'}
-          note="Metros por kilo"
-          icon={Shirt}
-          accent="amber"
-        />
-        <Metric
-          label="Estado del Catálogo"
-          value={loading ? 'Actualizando...' : error ? 'Atención' : 'Al día'}
-          note={error ? 'Verificar conexión' : 'Precios vigentes'}
-          icon={Settings}
-          accent={error ? 'amber' : 'green'}
-        />
-      </div>
-
-      {error && (
-        <div
-          className="alert"
-          style={{
-            margin: '0 0 20px',
-            background: '#ef444415',
-            borderColor: '#ef444440',
-            color: '#f87171',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <AlertCircle size={18} />
-            <div>
-              <strong>No se pudieron cargar las telas</strong>
-              <small style={{ color: '#fca5a5', display: 'block', marginTop: '2px' }}>
-                Ocurrió un inconveniente al comunicarse con el servidor. Por favor, reintentá.
-              </small>
-            </div>
-          </div>
-          <button
-            className="secondary"
-            onClick={onReload}
-            style={{ fontSize: '11px', padding: '6px 12px' }}
-          >
-            Reintentar
-          </button>
-        </div>
-      )}
-
-      <section className="card">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">REGISTRO DE TELAS</p>
-            <h2>Costos por Kilo, Rendimientos y Costo por Metro</h2>
-          </div>
-          <div className="search" style={{ minWidth: '220px' }}>
-            <Search size={15} />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar tela..."
-              style={{ background: 'transparent', border: 'none', padding: 0, outline: 'none' }}
-            />
-          </div>
-        </div>
-
-        {loading && telas.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)' }}>
-            <RefreshCw size={24} className="animate-spin" style={{ margin: '0 auto 12px' }} />
-            <p>Cargando telas...</p>
-          </div>
-        ) : filteredTelas.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)' }}>
-            <p style={{ fontWeight: 600, margin: '0 0 6px' }}>
-              {search
-                ? 'No se encontraron telas para la búsqueda ingresada.'
-                : 'No hay telas registradas en el catálogo.'}
-            </p>
-            <small>Hacé clic en &quot;Nueva Tela&quot; para agregar insumos al catálogo.</small>
-          </div>
-        ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th># ID</th>
-                  <th>Nombre de la Tela</th>
-                  <th>Descripción / Composición</th>
-                  <th>Rendimiento</th>
-                  <th>Precio / Kilo</th>
-                  <th>Precio / Metro</th>
-                  <th>Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTelas.map((tela) => {
-                  const precioMetro =
-                    tela.precio_metro ||
-                    (tela.rendimiento > 0 ? tela.precio_kilo / tela.rendimiento : 0)
-
-                  return (
-                    <tr key={tela.id}>
-                      <td className="id">#{tela.id}</td>
-                      <td>
-                        <strong>{tela.nombre}</strong>
-                      </td>
-                      <td>
-                        <span className="muted">{tela.descripcion || 'Sin descripción'}</span>
-                      </td>
-                      <td>
-                        <strong>
-                          {tela.rendimiento ? `${Number(tela.rendimiento).toFixed(2)} m/kg` : '-'}
-                        </strong>
-                      </td>
-                      <td>
-                        <strong>{money.format(tela.precio_kilo)}</strong>
-                      </td>
-                      <td>
-                        <strong className="green">{money.format(precioMetro)}</strong>
-                      </td>
-                      <td>
-                        <button
-                          className="secondary btn-sm"
-                          onClick={() => onEditTela(tela)}
-                          title="Editar tela"
-                        >
-                          <Pencil size={13} /> Editar
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-    </div>
-  )
-}
-
-/**
- * 3. Sección Catálogo de Productos (Con edición completa)
- */
-function CatalogoView({
-  productos,
-  loading,
-  error,
-  onReload,
-  onEditProducto,
-  onNewProducto,
-  setView,
-}: {
-  productos: Producto[]
-  loading: boolean
-  error: string | null
-  onReload: () => void
-  onEditProducto: (prod: Producto) => void
-  onNewProducto: () => void
-  setView: (v: string) => void
-}) {
-  const [search, setSearch] = useState('')
-
-  const filteredProductos = useMemo(() => {
-    if (!search.trim()) return productos
-    const q = search.toLowerCase()
-    return productos.filter(
-      (p) =>
-        p.nombre.toLowerCase().includes(q) ||
-        p.tela?.nombre.toLowerCase().includes(q) ||
-        p.tela_secundaria?.nombre.toLowerCase().includes(q) ||
-        p.tipo_estampado?.toLowerCase().includes(q)
-    )
-  }, [productos, search])
-
-  const precioPromedioVenta = useMemo(() => {
-    if (productos.length === 0) return 0
-    return productos.reduce((acc, p) => acc + (p.precio_venta || 0), 0) / productos.length
-  }, [productos])
-
-  const costoPromedioProd = useMemo(() => {
-    if (productos.length === 0) return 0
-    return productos.reduce((acc, p) => acc + (p.costo_produccion || 0), 0) / productos.length
-  }, [productos])
-
-  return (
-    <div className="module-page">
-      <div className="welcome">
-        <div>
-          <p className="eyebrow">CATÁLOGO DE PRENDAS</p>
-          <h1>Catálogo de Productos</h1>
-          <p className="muted">
-            Modelos de confección con consumo de tela, costos de taller y precio de venta final.
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button className="secondary" onClick={onReload} disabled={loading}>
-            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
-            {loading ? 'Actualizando...' : 'Actualizar'}
-          </button>
-          <button className="primary" onClick={onNewProducto}>
-            <Plus size={16} /> Nueva Prenda
-          </button>
-        </div>
-      </div>
-
-      <div className="metrics">
-        <Metric
-          label="Prendas en catálogo"
-          value={`${productos.length} modelos`}
-          note="Activos para venta"
-          icon={Shirt}
-          accent="blue"
-        />
-        <Metric
-          label="Precio Promedio Venta"
-          value={money.format(precioPromedioVenta)}
-          note="PVP unitario"
-          icon={TrendingUp}
-          accent="green"
-        />
-        <Metric
-          label="Costo Promedio Producción"
-          value={money.format(costoPromedioProd)}
-          note="Tela + Taller + Avíos"
-          icon={Package}
-          accent="violet"
-        />
-        <Metric
-          label="Estado de Catálogo"
-          value={loading ? 'Actualizando...' : error ? 'Atención' : 'Al día'}
-          note={error ? 'Verificar conexión' : 'Sincronizado'}
-          icon={Settings}
-          accent={error ? 'amber' : 'green'}
-        />
-      </div>
-
-      {error && (
-        <div
-          className="alert"
-          style={{
-            margin: '0 0 20px',
-            background: '#ef444415',
-            borderColor: '#ef444440',
-            color: '#f87171',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <AlertCircle size={18} />
-            <div>
-              <strong>No se pudieron cargar los productos</strong>
-              <small style={{ color: '#fca5a5', display: 'block', marginTop: '2px' }}>
-                Ocurrió un error al consultar el catálogo.
-              </small>
-            </div>
-          </div>
-          <button
-            className="secondary"
-            onClick={onReload}
-            style={{ fontSize: '11px', padding: '6px 12px' }}
-          >
-            Reintentar
-          </button>
-        </div>
-      )}
-
-      <section className="card">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">LISTADO DE PRENDAS</p>
-            <h2>Modelos y estructura de costos</h2>
-          </div>
-          <div className="search" style={{ minWidth: '220px' }}>
-            <Search size={15} />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar prenda o tela..."
-              style={{ background: 'transparent', border: 'none', padding: 0, outline: 'none' }}
-            />
-          </div>
-        </div>
-
-        {loading && productos.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)' }}>
-            <RefreshCw size={24} className="animate-spin" style={{ margin: '0 auto 12px' }} />
-            <p>Cargando productos...</p>
-          </div>
-        ) : filteredProductos.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)' }}>
-            <p style={{ fontWeight: 600, margin: '0 0 6px' }}>
-              {search
-                ? 'No se encontraron prendas para la búsqueda ingresada.'
-                : 'No hay prendas registradas en el catálogo.'}
-            </p>
-            <small>Hacé clic en &quot;Nueva Prenda&quot; para registrar un modelo.</small>
-          </div>
-        ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th># ID</th>
-                  <th>Modelo / Prenda</th>
-                  <th>Tela Asociada</th>
-                  <th>Consumo</th>
-                  <th>Confección</th>
-                  <th>Estampa</th>
-                  <th>Costo Producción</th>
-                  <th>Precio Venta</th>
-                  <th>Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredProductos.map((p) => (
-                  <tr key={p.id}>
-                    <td className="id">#{p.id}</td>
-                    <td>
-                      <strong>{p.nombre}</strong>
-                      {p.nombre_avio && (
-                        <small style={{ display: 'block', color: 'var(--muted)' }}>
-                          Avío: {p.nombre_avio}
-                        </small>
-                      )}
-                    </td>
-                    <td>
-                      <span>{p.tela?.nombre || 'Sin tela'}</span>
-                      {p.tela?.precio_metro ? (
-                        <small style={{ display: 'block', color: 'var(--muted)' }}>
-                          {money.format(p.tela.precio_metro)} / m
-                        </small>
-                      ) : null}
-                      {p.tela_secundaria && (p.consumo_metros_secundaria ?? 0) > 0 && (
-                        <div style={{ marginTop: '4px', paddingTop: '4px', borderTop: '1px dashed var(--line)' }}>
-                          <span>+ {p.tela_secundaria.nombre}</span>
-                          {p.tela_secundaria.precio_metro ? (
-                            <small style={{ display: 'block', color: 'var(--muted)' }}>
-                              {money.format(p.tela_secundaria.precio_metro)} / m
-                            </small>
-                          ) : null}
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      <div>{p.consumo_metros} m</div>
-                      {p.tela_secundaria && (p.consumo_metros_secundaria ?? 0) > 0 && (
-                        <small style={{ display: 'block', color: 'var(--muted)', marginTop: '4px' }}>
-                          + {p.consumo_metros_secundaria} m
-                        </small>
-                      )}
-                    </td>
-                    <td>{money.format(p.costo_confeccion)}</td>
-                    <td>
-                      {p.tipo_estampado || 'Ninguno'}
-                      {p.costo_estampado > 0 && (
-                        <small style={{ display: 'block', color: 'var(--muted)' }}>
-                          {money.format(p.costo_estampado)}
-                        </small>
-                      )}
-                    </td>
-                    <td>
-                      <strong>{money.format(p.costo_produccion)}</strong>
-                    </td>
-                    <td>
-                      <strong className="green">{money.format(p.precio_venta)}</strong>
-                    </td>
-                    <td>
-                      <button
-                        className="secondary btn-sm"
-                        onClick={() => onEditProducto(p)}
-                        title="Editar producto"
-                      >
-                        <Pencil size={13} /> Editar
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-    </div>
-  )
-}
-
-/**
- * 4. Sección Historial de Presupuestos (Con edición y detalle)
- */
-function HistorialView({
-  presupuestos,
-  loading,
-  error,
-  token,
-  onReload,
-  onSelectPresupuesto,
-  setView,
-}: {
-  presupuestos: Presupuesto[]
-  loading: boolean
-  error: string | null
-  token: string
-  onReload: () => void
-  onSelectPresupuesto: (p: Presupuesto) => void
-  setView: (v: string) => void
-}) {
-  const [search, setSearch] = useState('')
-
-  const filtered = useMemo(() => {
-    if (!search.trim()) return presupuestos
-    const q = search.toLowerCase()
-    return presupuestos.filter((p) => p.cliente_referencia.toLowerCase().includes(q))
-  }, [presupuestos, search])
-
-  const totalCotizado = useMemo(() => {
-    return presupuestos.reduce((acc, p) => acc + (p.precio_total || 0), 0)
-  }, [presupuestos])
-
-  const ticketPromedio = useMemo(() => {
-    if (presupuestos.length === 0) return 0
-    return totalCotizado / presupuestos.length
-  }, [presupuestos, totalCotizado])
-
-  return (
-    <div className="module-page">
-      <div className="welcome">
-        <div>
-          <p className="eyebrow">COTIZACIONES EMITIDAS</p>
-          <h1>Historial de Presupuestos</h1>
-          <p className="muted">
-            Registro de presupuestos entregados a clientes con opción de edición, recotización y comprobantes.
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button className="secondary" onClick={onReload} disabled={loading}>
-            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
-            {loading ? 'Actualizando...' : 'Actualizar'}
-          </button>
-          <button className="primary" onClick={() => setView('nuevo')}>
-            <Plus size={16} /> Nueva Cotización
-          </button>
-        </div>
-      </div>
-
-      <div className="metrics">
-        <Metric
-          label="Presupuestos Totales"
-          value={`${presupuestos.length} emitidos`}
-          note="Historial general"
-          icon={Package}
-          accent="amber"
-        />
-        <Metric
-          label="Total Cotizado"
-          value={money.format(totalCotizado)}
-          note="Monto acumulado"
-          icon={TrendingUp}
-          accent="green"
-        />
-        <Metric
-          label="Ticket Promedio"
-          value={money.format(ticketPromedio)}
-          note="Por cotización"
-          icon={Calculator}
-          accent="blue"
-        />
-        <Metric
-          label="Estado del Historial"
-          value={loading ? 'Actualizando...' : error ? 'Atención' : 'Al día'}
-          note={error ? 'Verificar conexión' : 'Actualizado'}
-          icon={Settings}
-          accent={error ? 'amber' : 'green'}
-        />
-      </div>
-
-      {error && (
-        <div
-          className="alert"
-          style={{
-            margin: '0 0 20px',
-            background: '#ef444415',
-            borderColor: '#ef444440',
-            color: '#f87171',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <AlertCircle size={18} />
-            <div>
-              <strong>No se pudo cargar el historial</strong>
-              <small style={{ color: '#fca5a5', display: 'block', marginTop: '2px' }}>
-                Ocurrió un error al consultar las cotizaciones.
-              </small>
-            </div>
-          </div>
-          <button
-            className="secondary"
-            onClick={onReload}
-            style={{ fontSize: '11px', padding: '6px 12px' }}
-          >
-            Reintentar
-          </button>
-        </div>
-      )}
-
-      <section className="card">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">REGISTRO HISTÓRICO</p>
-            <h2>Cotizaciones realizadas</h2>
-          </div>
-          <div className="search" style={{ minWidth: '220px' }}>
-            <Search size={15} />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar cliente..."
-              style={{ background: 'transparent', border: 'none', padding: 0, outline: 'none' }}
-            />
-          </div>
-        </div>
-
-        {loading && presupuestos.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)' }}>
-            <RefreshCw size={24} className="animate-spin" style={{ margin: '0 auto 12px' }} />
-            <p>Cargando presupuestos...</p>
-          </div>
-        ) : filtered.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)' }}>
-            <p style={{ fontWeight: 600, margin: '0 0 6px' }}>
-              {search
-                ? 'No se encontraron presupuestos para el cliente buscado.'
-                : 'No hay presupuestos registrados.'}
-            </p>
-            <small>Los presupuestos creados aparecerán listados aquí.</small>
-          </div>
-        ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th># ID</th>
-                  <th>Cliente / Referencia</th>
-                  <th>Fecha de Emisión</th>
-                  <th>Multiplicador</th>
-                  <th>Costo Fijo</th>
-                  <th>Total</th>
-                  <th>Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((q) => (
-                  <tr key={q.id}>
-                    <td className="id">#{q.id}</td>
-                    <td>
-                      <strong>{q.cliente_referencia}</strong>
-                    </td>
-                    <td>{new Date(q.created_at).toLocaleDateString('es-AR')}</td>
-                    <td>{Number(q.multiplicador).toFixed(1)}x</td>
-                    <td>{money.format(q.costo_fijo)}</td>
-                    <td>
-                      <strong className="green">{money.format(q.precio_total)}</strong>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <button
-                          className="secondary btn-sm"
-                          onClick={() => onSelectPresupuesto(q)}
-                        >
-                          <Eye size={13} /> Ver / Modificar
-                        </button>
-                        <a
-                          href={`${API_BASE}/api/presupuestos/${q.id}/pdf${token ? `?token=${encodeURIComponent(token)}` : ''}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="icon-btn"
-                          title="Descargar PDF"
-                        >
-                          <FileDown size={16} />
-                        </a>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-    </div>
-  )
-}
-
-/**
- * 5. Sección Nuevo Presupuesto (Cotizador formal con precarga para edición)
- */
-function NuevoPresupuestoView({
-  productos,
-  config,
-  token,
-  isDemo,
-  initialData,
-  onPresupuestoCreado,
-  onCreateDemoPresupuesto,
-  setView,
-}: {
-  productos: Producto[]
-  config: Configuracion | null
-  token: string
-  isDemo?: boolean
-  initialData?: {
-    cliente: string
-    multiplicador: number
-    costoFijo: number
-    items: Array<{ producto_id: number; cantidad: number; detalle_estampado: string }>
-  } | null
-  onPresupuestoCreado: () => void
-  onCreateDemoPresupuesto?: (
-    cliente: string,
-    multiplicador: number,
-    costoFijo: number,
-    items: Array<{ producto_id: number; cantidad: number }>
-  ) => void
-  setView: (v: string) => void
-}) {
-  const [cliente, setCliente] = useState(initialData?.cliente ?? '')
-  const [multiplicador, setMultiplicador] = useState<number>(
-    initialData?.multiplicador ?? (config?.multiplicador ?? 2.0)
-  )
-  const [costoFijo, setCostoFijo] = useState<number>(
-    initialData?.costoFijo ?? (config?.costo_fijo ?? 6000)
-  )
-
-  const [items, setItems] = useState<
-    Array<{
-      producto_id: number
-      cantidad: number
-      detalle_estampado: string
-    }>
-  >(initialData?.items ?? [])
-
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    if (initialData) {
-      setCliente(initialData.cliente)
-      setMultiplicador(initialData.multiplicador)
-      setCostoFijo(initialData.costoFijo)
-      setItems(initialData.items)
-    } else if (config) {
-      if (config.multiplicador && !multiplicador) setMultiplicador(config.multiplicador)
-      if (config.costo_fijo && !costoFijo) setCostoFijo(config.costo_fijo)
-    }
-  }, [config, initialData, multiplicador, costoFijo])
-
-  const handleAddItem = (productoId: number) => {
-    const existing = items.find((it) => it.producto_id === productoId)
-    if (existing) {
-      setItems(
-        items.map((it) =>
-          it.producto_id === productoId ? { ...it, cantidad: it.cantidad + 1 } : it
-        )
-      )
-    } else {
-      setItems([
-        ...items,
-        {
-          producto_id: productoId,
-          cantidad: 1,
-          detalle_estampado: '',
-        },
-      ])
-    }
-  }
-
-  const handleRemoveItem = (index: number) => {
-    setItems(items.filter((_, i) => i !== index))
-  }
-
-  const handleUpdateCantidad = (index: number, val: number) => {
-    const c = Math.max(1, val)
-    setItems(items.map((it, i) => (i === index ? { ...it, cantidad: c } : it)))
-  }
-
-  const resumen = useMemo(() => {
-    let totalPrendas = 0
-    let totalPrecio = 0
-
-    for (const it of items) {
-      const p = productos.find((prod) => prod.id === it.producto_id)
-      if (p) {
-        const unitPrice = calcularPrecioUnitarioProducto(p, multiplicador, costoFijo)
-        totalPrendas += it.cantidad
-        totalPrecio += unitPrice * it.cantidad
-      }
-    }
-
-    return { totalPrendas, totalPrecio }
-  }, [items, productos, multiplicador, costoFijo])
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!cliente.trim()) {
-      setError('Por favor ingresá el nombre o referencia del cliente.')
-      return
-    }
-    if (items.length === 0) {
-      setError('Agregá al menos una prenda al presupuesto.')
-      return
-    }
-
-    setError('')
-    setSaving(true)
-
-    if (isDemo) {
-      if (onCreateDemoPresupuesto) {
-        onCreateDemoPresupuesto(
-          cliente.trim(),
-          Number(multiplicador),
-          Number(costoFijo),
-          items
-        )
-      } else {
-        onPresupuestoCreado()
-        setView('historial')
-      }
-      setSaving(false)
-      return
-    }
-
-    try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      }
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-      }
-
-      const res = await fetch(`${API_BASE}/api/presupuestos`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          cliente: cliente.trim(),
-          multiplicador: Number(multiplicador),
-          costo_fijo: Number(costoFijo),
-          items: items.map((it) => ({
-            producto_id: it.producto_id,
-            cantidad: it.cantidad,
-            detalle_estampado: it.detalle_estampado || undefined,
-          })),
-        }),
-      })
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => null)
-        throw new Error(data?.detail || 'No se pudo guardar el presupuesto.')
-      }
-
-      onPresupuestoCreado()
-      setView('historial')
-    } catch (err: any) {
-      setError(err.message || 'Error al guardar el presupuesto.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="module-page">
-      <div className="welcome">
-        <div>
-          <p className="eyebrow">COTIZADOR FORMAL</p>
-          <h1>{initialData ? 'Recotizar / Modificar Presupuesto' : 'Nuevo Presupuesto'}</h1>
-          <p className="muted">
-            Armá una cotización combinando prendas del catálogo, cantidades y parámetros de ganancia.
-          </p>
-        </div>
-        <button className="secondary" onClick={() => setView('historial')}>
-          <FileDown size={15} /> Ver Historial
-        </button>
-      </div>
-
-      {error && (
-        <div
-          className="alert"
-          style={{
-            margin: '0 0 20px',
-            background: '#ef444415',
-            borderColor: '#ef444440',
-            color: '#f87171',
-          }}
-        >
-          <AlertCircle size={18} />
-          <span>{error}</span>
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit}>
-        <div className="content-grid">
-          <div className="main-column">
-            <section className="card">
-              <div className="section-heading">
-                <div>
-                  <p className="eyebrow">DATOS PRINCIPALES</p>
-                  <h2>Información del Cliente</h2>
-                </div>
-              </div>
-
-              <div style={{ padding: '0 20px 20px', display: 'grid', gap: '14px' }}>
-                <label>
-                  Cliente / Referencia Comercial
-                  <input
-                    type="text"
-                    value={cliente}
-                    onChange={(e) => setCliente(e.target.value)}
-                    placeholder="Ej: Club Náutico, Marca Surf Local..."
-                    required
-                  />
-                </label>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <label>
-                    Multiplicador Comercial
-                    <SmartNumberInput
-                      step="0.1"
-                      min="1"
-                      value={multiplicador}
-                      onChangeValue={(val) => setMultiplicador(val)}
-                      required
-                    />
-                  </label>
-                  <label>
-                    Costo Fijo por Prenda ($)
-                    <SmartNumberInput
-                      step="100"
-                      min="0"
-                      value={costoFijo}
-                      onChangeValue={(val) => setCostoFijo(val)}
-                      required
-                    />
-                  </label>
-                </div>
-              </div>
-            </section>
-
-            <section className="card">
-              <div className="section-heading">
-                <div>
-                  <p className="eyebrow">PRENDAS A COTIZAR</p>
-                  <h2>Ítems del Presupuesto</h2>
-                </div>
-                <span className="muted" style={{ fontSize: '12px' }}>
-                  {items.length} prendas agregadas
-                </span>
-              </div>
-
-              {items.length === 0 ? (
-                <div style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--muted)' }}>
-                  <p style={{ margin: '0 0 6px', fontWeight: 600 }}>No agregaste prendas todavía</p>
-                  <small>Seleccioná modelos desde el panel lateral derecho para incorporarlos.</small>
-                </div>
-              ) : (
-                <div style={{ padding: '0 20px 20px', display: 'grid', gap: '12px' }}>
-                  {items.map((it, idx) => {
-                    const prod = productos.find((p) => p.id === it.producto_id)
-                    const unitPrice = calcularPrecioUnitarioProducto(prod, multiplicador, costoFijo)
-                    const subtotal = unitPrice * it.cantidad
-
-                    return (
-                      <div
-                        key={idx}
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: '1fr auto auto auto',
-                          alignItems: 'center',
-                          gap: '12px',
-                          padding: '12px',
-                          border: '1px solid var(--line)',
-                          borderRadius: '8px',
-                          background: 'var(--surface-2)',
-                        }}
-                      >
-                        <div>
-                          <strong>{prod?.nombre || `Producto #${it.producto_id}`}</strong>
-                          <small style={{ display: 'block', color: 'var(--muted)' }}>
-                            Tela: {prod?.tela?.nombre || 'Estándar'}
-                            {prod?.tela_secundaria && (prod?.consumo_metros_secundaria ?? 0) > 0
-                              ? ` + ${prod.tela_secundaria.nombre}`
-                              : ''}{' '}
-                            · {money.format(unitPrice)} u.
-                          </small>
-                        </div>
-                        <div style={{ width: '90px' }}>
-                          <SmartNumberInput
-                            min="1"
-                            value={it.cantidad}
-                            onChangeValue={(val) => handleUpdateCantidad(idx, val)}
-                          />
-                        </div>
-                        <div style={{ minWidth: '110px', textAlign: 'right' }}>
-                          <strong className="green">{money.format(subtotal)}</strong>
-                        </div>
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          onClick={() => handleRemoveItem(idx)}
-                          title="Eliminar ítem"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </section>
-          </div>
-
-          <div className="right-column">
-            <section className="card">
-              <div className="section-heading">
-                <div>
-                  <p className="eyebrow">CATÁLOGO DISPONIBLE</p>
-                  <h2>Agregar al presupuesto</h2>
-                </div>
-              </div>
-
-              <div style={{ padding: '0 16px 16px', display: 'grid', gap: '8px', maxHeight: '420px', overflowY: 'auto' }}>
-                {productos.length === 0 ? (
-                  <p style={{ color: 'var(--muted)', fontSize: '12px', textAlign: 'center', padding: '20px 0' }}>
-                    No hay prendas en catálogo.
-                  </p>
-                ) : (
-                  productos.map((prod) => {
-                    const dynamicPrice = calcularPrecioUnitarioProducto(prod, multiplicador, costoFijo)
-                    return (
-                      <div
-                        key={prod.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '10px 12px',
-                          border: '1px solid var(--line)',
-                          borderRadius: '7px',
-                        }}
-                      >
-                        <div>
-                          <strong style={{ fontSize: '12px' }}>{prod.nombre}</strong>
-                          <small style={{ display: 'block', color: 'var(--muted)', fontSize: '11px' }}>
-                            {money.format(dynamicPrice)}
-                          </small>
-                        </div>
-                        <button
-                          type="button"
-                          className="secondary btn-sm"
-                          onClick={() => handleAddItem(prod.id)}
-                        >
-                          <Plus size={14} /> Agregar
-                        </button>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            </section>
-
-            <section className="card">
-              <div className="section-heading">
-                <div>
-                  <p className="eyebrow">RESUMEN</p>
-                  <h2>Total Estimado</h2>
-                </div>
-              </div>
-
-              <div className="calc-breakdown">
-                <div>
-                  <span>Prendas totales</span>
-                  <strong>{resumen.totalPrendas} unidades</strong>
-                </div>
-                <div>
-                  <span>Multiplicador aplicado</span>
-                  <strong>{multiplicador.toFixed(1)}x</strong>
-                </div>
-              </div>
-
-              <div className="calc-total">
-                <span>Total Cotizado</span>
-                <strong className="green">{money.format(resumen.totalPrecio)}</strong>
-              </div>
-
-              <div style={{ padding: '0 20px 20px' }}>
-                <button
-                  type="submit"
-                  className="primary full"
-                  disabled={saving || items.length === 0}
-                >
-                  {saving ? 'Guardando...' : 'Confirmar y Guardar Presupuesto'}
-                  <Check size={16} />
-                </button>
-              </div>
-            </section>
-          </div>
-        </div>
-      </form>
-    </div>
-  )
-}
-
-/**
- * 7. MODALES DE EDICIÓN Y CREACIÓN (CRUD TOTAL)
- */
-
-// Modal: Editar o Crear Tela
-function ModalTela({
-  tela,
-  onSave,
-  onDelete,
-  onClose,
-}: {
-  tela?: Tela | null
-  onSave: (data: { nombre: string; precio_kilo: number; rendimiento: number; descripcion: string }) => Promise<void>
-  onDelete?: (id: number) => Promise<void>
-  onClose: () => void
-}) {
-  const isEditing = !!tela
-  const [nombre, setNombre] = useState(tela?.nombre ?? '')
-  const [precioKilo, setPrecioKilo] = useState<number>(tela?.precio_kilo ?? 12000)
-  const [rendimiento, setRendimiento] = useState<number>(tela?.rendimiento ?? 2.5)
-  const [descripcion, setDescripcion] = useState(tela?.descripcion ?? '')
-  const [saving, setSaving] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [error, setError] = useState('')
-
-  const precioMetroEstimado = useMemo(() => {
-    if (!rendimiento || rendimiento <= 0) return 0
-    return precioKilo / rendimiento
-  }, [precioKilo, rendimiento])
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!nombre.trim()) {
-      setError('El nombre de la tela es obligatorio.')
-      return
-    }
-    setSaving(true)
-    setError('')
-    try {
-      await onSave({
-        nombre: nombre.trim(),
-        precio_kilo: Number(precioKilo),
-        rendimiento: Number(rendimiento),
-        descripcion: descripcion.trim(),
-      })
-      onClose()
-    } catch (err: any) {
-      setError(err.message || 'Error al guardar la tela.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleDelete = async () => {
-    if (!tela || !onDelete) return
-    if (!confirm(`¿Estás seguro de eliminar la tela "${tela.nombre}"?`)) return
-    setDeleting(true)
-    try {
-      await onDelete(tela.id)
-      onClose()
-    } catch (err: any) {
-      setError(err.message || 'Error al eliminar la tela.')
-    } finally {
-      setDeleting(false)
-    }
-  }
-
-  return (
-    <div className="overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <button className="close" onClick={onClose}>
-          <X size={18} />
-        </button>
-        <p className="eyebrow">{isEditing ? `EDITAR TELA #${tela?.id}` : 'NUEVA TELA'}</p>
-        <h2>{isEditing ? tela?.nombre : 'Registrar Nueva Tela'}</h2>
-        <p className="muted" style={{ marginBottom: '18px' }}>
-          Configurá el costo por kilo y el rendimiento para calcular el metro lineal.
-        </p>
-
-        {error && (
-          <div className="alert" style={{ margin: '0 0 16px', color: '#f87171', background: '#ef444415' }}>
-            <AlertCircle size={16} />
-            <span>{error}</span>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '14px' }}>
-          <label>
-            Nombre de la Tela
-            <input
-              type="text"
-              value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
-              placeholder="Ej: Rústico Invisible, Jersey 24/1..."
-              required
-            />
-          </label>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <label>
-              Precio por Kilo ($)
-              <SmartNumberInput
-                step="100"
-                min="0"
-                value={precioKilo}
-                onChangeValue={(val) => setPrecioKilo(val)}
-                required
-              />
-            </label>
-
-            <label>
-              Rendimiento (m/kg)
-              <SmartNumberInput
-                step="0.05"
-                min="0.1"
-                value={rendimiento}
-                onChangeValue={(val) => setRendimiento(val)}
-                required
-              />
-            </label>
-          </div>
-
-          <label>
-            Descripción / Composición (opcional)
-            <textarea
-              rows={2}
-              value={descripcion}
-              onChange={(e) => setDescripcion(e.target.value)}
-              placeholder="Ej: 100% Algodón Peinado, frisado liviano..."
-            />
-          </label>
-
-          <div className="modal-total">
-            <span>Costo Calculado por Metro Lineal</span>
-            <strong className="green">{money.format(precioMetroEstimado)}</strong>
-          </div>
-
-          <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-            {isEditing && onDelete && (
-              <button
-                type="button"
-                className="danger-btn"
-                onClick={handleDelete}
-                disabled={deleting || saving}
-              >
-                <Trash2 size={15} /> {deleting ? 'Eliminando...' : 'Eliminar'}
-              </button>
-            )}
-            <button
-              type="submit"
-              className="primary"
-              style={{ flex: 1 }}
-              disabled={saving || deleting}
-            >
-              <Save size={15} /> {saving ? 'Guardando...' : isEditing ? 'Guardar Cambios' : 'Crear Tela'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-// Modal: Editar o Crear Producto
-function ModalProducto({
-  producto,
-  telas,
-  tiposEstampado,
-  onSave,
-  onDelete,
-  onClose,
-}: {
-  producto?: Producto | null
-  telas: Tela[]
-  tiposEstampado: TipoEstampado[]
-  onSave: (data: {
-    nombre: string
-    tela_id: number
-    consumo_metros: number
-    tela_secundaria_id: number | null
-    consumo_metros_secundaria: number
-    costo_confeccion: number
-    tipo_estampado: string
-    consumo_estampado: number
-    nombre_avio: string
-    costo_avio: number
-  }) => Promise<void>
-  onDelete?: (id: number) => Promise<void>
-  onClose: () => void
-}) {
-  const isEditing = !!producto
-  const [nombre, setNombre] = useState(producto?.nombre ?? '')
-  const [telaId, setTelaId] = useState<number>(producto?.tela?.id ?? telas[0]?.id ?? 0)
-  const [consumoMetros, setConsumoMetros] = useState<number>(producto?.consumo_metros ?? 1.2)
-  const [telaSecundariaId, setTelaSecundariaId] = useState<number>(
-    producto?.tela_secundaria?.id ?? 0
-  )
-  const [consumoMetrosSecundaria, setConsumoMetrosSecundaria] = useState<number>(
-    producto?.consumo_metros_secundaria ?? 0
-  )
-  const [costoConfeccion, setCostoConfeccion] = useState<number>(producto?.costo_confeccion ?? 2500)
-  const [tipoEstampado, setTipoEstampado] = useState<string>(producto?.tipo_estampado ?? 'Ninguno')
-  const [consumoEstampado, setConsumoEstampado] = useState<number>(producto?.consumo_estampado ?? 0)
-  const [nombreAvio, setNombreAvio] = useState(producto?.nombre_avio ?? '')
-  const [costoAvio, setCostoAvio] = useState<number>(producto?.costo_avio ?? 0)
-
-  const [saving, setSaving] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [error, setError] = useState('')
-
-  const selectedTela = useMemo(() => telas.find((t) => t.id === telaId), [telas, telaId])
-  const selectedTelaSecundaria = useMemo(
-    () => (telaSecundariaId > 0 ? telas.find((t) => t.id === telaSecundariaId) : undefined),
-    [telas, telaSecundariaId]
-  )
-
-  const costoTelaEstimado = calcularCostoTelaCombinada(
-    selectedTela,
-    consumoMetros,
-    telaSecundariaId > 0 ? selectedTelaSecundaria : null,
-    telaSecundariaId > 0 ? consumoMetrosSecundaria : 0
-  )
-  const costoBaseEstimado = costoTelaEstimado + costoConfeccion + costoAvio
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!nombre.trim()) {
-      setError('El nombre de la prenda es obligatorio.')
-      return
-    }
-    if (!telaId) {
-      setError('Seleccioná una tela válida del catálogo.')
-      return
-    }
-
-    const tieneSegunda = telaSecundariaId > 0 && consumoMetrosSecundaria > 0
-
-    setSaving(true)
-    setError('')
-    try {
-      await onSave({
-        nombre: nombre.trim(),
-        tela_id: Number(telaId),
-        consumo_metros: Number(consumoMetros),
-        tela_secundaria_id: tieneSegunda ? Number(telaSecundariaId) : null,
-        consumo_metros_secundaria: tieneSegunda ? Number(consumoMetrosSecundaria) : 0,
-        costo_confeccion: Number(costoConfeccion),
-        tipo_estampado: tipoEstampado,
-        consumo_estampado: Number(consumoEstampado),
-        nombre_avio: nombreAvio.trim(),
-        costo_avio: Number(costoAvio),
-      })
-      onClose()
-    } catch (err: any) {
-      setError(err.message || 'Error al guardar el producto.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleDelete = async () => {
-    if (!producto || !onDelete) return
-    if (!confirm(`¿Estás seguro de eliminar "${producto.nombre}"?`)) return
-    setDeleting(true)
-    try {
-      await onDelete(producto.id)
-      onClose()
-    } catch (err: any) {
-      setError(err.message || 'Error al eliminar el producto.')
-    } finally {
-      setDeleting(false)
-    }
-  }
-
-  return (
-    <div className="overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <button className="close" onClick={onClose}>
-          <X size={18} />
-        </button>
-        <p className="eyebrow">{isEditing ? `EDITAR PRODUCTO #${producto?.id}` : 'NUEVO PRODUCTO'}</p>
-        <h2>{isEditing ? producto?.nombre : 'Registrar Nueva Prenda'}</h2>
-        <p className="muted" style={{ marginBottom: '18px' }}>
-          Definí la tela asociada, metros necesarios y costos de confección para el cálculo de costos.
-        </p>
-
-        {error && (
-          <div className="alert" style={{ margin: '0 0 16px', color: '#f87171', background: '#ef444415' }}>
-            <AlertCircle size={16} />
-            <span>{error}</span>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '14px' }}>
-          <label>
-            Nombre del Modelo / Prenda
-            <input
-              type="text"
-              value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
-              placeholder="Ej: Buzo Canguro Oversize, Remera Box Fit..."
-              required
-            />
-          </label>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 0.7fr', gap: '12px' }}>
-            <label>
-              Tela Principal
-              <select value={telaId} onChange={(e) => setTelaId(Number(e.target.value))} required>
-                {telas.map((t) => (
-                  <option value={t.id} key={t.id}>
-                    {t.nombre} ({money.format(t.precio_kilo)}/kg · {t.rendimiento} m/kg)
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              Consumo Principal (m)
-              <SmartNumberInput
-                step="0.05"
-                min="0.05"
-                value={consumoMetros}
-                onChangeValue={(val) => setConsumoMetros(val)}
-                required
-              />
-            </label>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 0.7fr', gap: '12px' }}>
-            <label>
-              Segunda Tela / Combinación (opcional)
-              <select
-                value={telaSecundariaId}
-                onChange={(e) => {
-                  const id = Number(e.target.value)
-                  setTelaSecundariaId(id)
-                  if (id === 0) {
-                    setConsumoMetrosSecundaria(0)
-                  } else if (consumoMetrosSecundaria <= 0) {
-                    setConsumoMetrosSecundaria(0.2)
-                  }
-                }}
-              >
-                <option value={0}>Ninguna (solo una tela)</option>
-                {telas.map((t) => (
-                  <option value={t.id} key={t.id}>
-                    {t.nombre} ({money.format(t.precio_kilo)}/kg · {t.rendimiento} m/kg)
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              Consumo 2da Tela (m)
-              <SmartNumberInput
-                step="0.05"
-                min="0"
-                value={telaSecundariaId > 0 ? consumoMetrosSecundaria : 0}
-                onChangeValue={(val) => setConsumoMetrosSecundaria(val)}
-                disabled={telaSecundariaId === 0}
-              />
-            </label>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
-            <label>
-              Costo Confección / Taller ($)
-              <SmartNumberInput
-                step="100"
-                min="0"
-                value={costoConfeccion}
-                onChangeValue={(val) => setCostoConfeccion(val)}
-                required
-              />
-            </label>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <label>
-              Técnica de Estampa
-              <select value={tipoEstampado} onChange={(e) => setTipoEstampado(e.target.value)}>
-                <option value="Ninguno">Ninguno</option>
-                {tiposEstampado.map((t) => (
-                  <option key={t.id || t.nombre} value={t.nombre}>
-                    {t.nombre}
-                  </option>
-                ))}
-                {tipoEstampado &&
-                  tipoEstampado !== 'Ninguno' &&
-                  !tiposEstampado.some(
-                    (t) => normalizarTecnica(t.nombre) === normalizarTecnica(tipoEstampado)
-                  ) && <option value={tipoEstampado}>{tipoEstampado}</option>}
-              </select>
-            </label>
-
-            <label>
-              Consumo de Estampa (m o u.)
-              <SmartNumberInput
-                step="0.05"
-                min="0"
-                value={consumoEstampado}
-                onChangeValue={(val) => setConsumoEstampado(val)}
-              />
-            </label>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '12px' }}>
-            <label>
-              Nombre del Avío (opcional)
-              <input
-                type="text"
-                value={nombreAvio}
-                onChange={(e) => setNombreAvio(e.target.value)}
-                placeholder="Ej: Cordon + Ojalillos"
-              />
-            </label>
-
-            <label>
-              Costo Avío ($)
-              <SmartNumberInput
-                step="50"
-                min="0"
-                value={costoAvio}
-                onChangeValue={(val) => setCostoAvio(val)}
-              />
-            </label>
-          </div>
-
-          <div className="modal-total">
-            <span>Costo Base Estimado (Tela + Confección + Avíos)</span>
-            <strong className="green">{money.format(costoBaseEstimado)}</strong>
-          </div>
-
-          <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-            {isEditing && onDelete && (
-              <button
-                type="button"
-                className="danger-btn"
-                onClick={handleDelete}
-                disabled={deleting || saving}
-              >
-                <Trash2 size={15} /> {deleting ? 'Eliminando...' : 'Eliminar'}
-              </button>
-            )}
-            <button
-              type="submit"
-              className="primary"
-              style={{ flex: 1 }}
-              disabled={saving || deleting}
-            >
-              <Save size={15} /> {saving ? 'Guardando...' : isEditing ? 'Guardar Cambios' : 'Crear Producto'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-// Modal: Detalle y Acciones de Presupuesto
-function ModalDetallePresupuesto({
-  presupuesto,
-  token,
-  onRecotizar,
-  onDelete,
-  onClose,
-}: {
-  presupuesto: Presupuesto
-  token: string
-  onRecotizar: (p: Presupuesto) => void
-  onDelete: (id: number) => Promise<void>
-  onClose: () => void
-}) {
-  const [deleting, setDeleting] = useState(false)
-
-  const handleDelete = async () => {
-    if (!confirm(`¿Estás seguro de eliminar el presupuesto #${presupuesto.id} de "${presupuesto.cliente_referencia}"?`)) return
-    setDeleting(true)
-    try {
-      await onDelete(presupuesto.id)
-      onClose()
-    } catch {
-      setDeleting(false)
-    }
-  }
-
-  return (
-    <div className="overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <button className="close" onClick={onClose}>
-          <X size={18} />
-        </button>
-        <p className="eyebrow">PRESUPUESTO #{presupuesto.id}</p>
-        <h2>{presupuesto.cliente_referencia}</h2>
-        <p className="muted">
-          Emitido el {new Date(presupuesto.created_at).toLocaleDateString('es-AR')}
-        </p>
-
-        <div className="modal-total">
-          <span>Total Cotizado Final</span>
-          <strong>{money.format(presupuesto.precio_total)}</strong>
-        </div>
-
-        <div className="detail-line">
-          <span>Multiplicador Comercial</span>
-          <strong>{Number(presupuesto.multiplicador).toFixed(1)}x</strong>
-        </div>
-
-        <div className="detail-line">
-          <span>Costo Fijo por Prenda</span>
-          <strong>{money.format(presupuesto.costo_fijo)}</strong>
-        </div>
-
-        <div style={{ display: 'grid', gap: '8px', marginTop: '20px' }}>
-          <button
-            type="button"
-            className="primary full"
-            onClick={() => {
-              onRecotizar(presupuesto)
-              onClose()
-            }}
-          >
-            <Pencil size={15} /> Modificar y Recotizar en Cotizador
-          </button>
-
-          <a
-            href={`${API_BASE}/api/presupuestos/${presupuesto.id}/pdf${token ? `?token=${encodeURIComponent(token)}` : ''}`}
-            target="_blank"
-            rel="noreferrer"
-            className="secondary full"
-            style={{ textDecoration: 'none' }}
-          >
-            <FileDown size={15} /> Descargar Comprobante Oficial PDF
-          </a>
-
-          <button
-            type="button"
-            className="danger-btn full"
-            onClick={handleDelete}
-            disabled={deleting}
-          >
-            <Trash2 size={15} /> {deleting ? 'Eliminando...' : 'Eliminar Cotización'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
+import { API_BASE, getGreetingName, isTokenExpired } from '@/lib/utils'
+import { DEMO_TELAS, DEMO_PRODUCTOS, DEMO_PRESUPUESTOS } from '@/lib/demo-data'
+
+import { LoginView } from '@/components/auth/LoginView'
+import { Sidebar } from '@/components/layout/Sidebar'
+import { DashboardView } from '@/components/dashboard/DashboardView'
+import { CatalogoView } from '@/components/catalogo/CatalogoView'
+import { ModalProducto } from '@/components/catalogo/ModalProducto'
+import { TelasView } from '@/components/telas/TelasView'
+import { ModalTela } from '@/components/telas/ModalTela'
+import { NuevoPresupuestoView } from '@/components/presupuestos/NuevoPresupuestoView'
+import { HistorialView } from '@/components/presupuestos/HistorialView'
+import { ModalDetallePresupuesto } from '@/components/presupuestos/ModalDetallePresupuesto'
+import { ConfiguracionView } from '@/components/configuracion/ConfiguracionView'
 
 export default function Page() {
   const [auth, setAuth] = useState(false)
@@ -2524,7 +36,7 @@ export default function Page() {
   const [userEmail, setUserEmail] = useState('')
   const [sessionNotice, setSessionNotice] = useState<string | null>(null)
   const [view, setView] = useState('dashboard')
-  const [dark, setDark] = useState(true)
+  const [dark, setDark] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   // Estados de datos de la API
@@ -2543,6 +55,11 @@ export default function Page() {
   const [config, setConfig] = useState<Configuracion | null>(null)
   const [loadingConfig, setLoadingConfig] = useState<boolean>(false)
 
+  const [tiposEstampado, setTiposEstampado] = useState<TipoEstampado[]>(() =>
+    obtenerTecnicasEstampado(null)
+  )
+  const [loadingTiposEstampado, setLoadingTiposEstampado] = useState<boolean>(false)
+
   // Estados de modales interactivos
   const [editingTela, setEditingTela] = useState<Tela | null | 'new'>(null)
   const [editingProducto, setEditingProducto] = useState<Producto | null | 'new'>(null)
@@ -2553,6 +70,7 @@ export default function Page() {
     cliente: string
     multiplicador: number
     costoFijo: number
+    descripcion_pdf?: string
     items: Array<{ producto_id: number; cantidad: number; detalle_estampado: string }>
   } | null>(null)
 
@@ -2658,6 +176,30 @@ export default function Page() {
     [getHeaders, token, handleSessionExpired]
   )
 
+  const fetchTiposEstampado = useCallback(
+    async (customToken?: string) => {
+      const active = customToken !== undefined ? customToken : token
+      if (!active) return
+      setLoadingTiposEstampado(true)
+      try {
+        const res = await fetch(`${API_BASE}/api/tipos-estampado`, { headers: getHeaders(active) })
+        if (res.status === 401 || res.status === 403) {
+          handleSessionExpired('Tu sesión expiró. Por favor, iniciá sesión nuevamente.')
+          return
+        }
+        if (res.ok) {
+          const data = await res.json()
+          if (Array.isArray(data)) {
+            setTiposEstampado((prev) => obtenerTecnicasEstampado(null, data))
+          }
+        }
+      } catch {} finally {
+        setLoadingTiposEstampado(false)
+      }
+    },
+    [getHeaders, token, handleSessionExpired]
+  )
+
   const fetchConfig = useCallback(
     async (customToken?: string) => {
       const active = customToken !== undefined ? customToken : token
@@ -2672,6 +214,9 @@ export default function Page() {
         if (res.ok) {
           const data = await res.json()
           setConfig(data)
+          if (Array.isArray(data?.tipos_estampado) && data.tipos_estampado.length > 0) {
+            setTiposEstampado(obtenerTecnicasEstampado(data, data.tipos_estampado))
+          }
         }
       } catch {} finally {
         setLoadingConfig(false)
@@ -2688,8 +233,9 @@ export default function Page() {
       fetchProductos(active)
       fetchPresupuestos(active)
       fetchConfig(active)
+      fetchTiposEstampado(active)
     },
-    [fetchTelas, fetchProductos, fetchPresupuestos, fetchConfig, token]
+    [fetchTelas, fetchProductos, fetchPresupuestos, fetchConfig, fetchTiposEstampado, token]
   )
 
   useEffect(() => {
@@ -2706,7 +252,6 @@ export default function Page() {
         setIsDemo(false)
         setToken(savedToken)
         if (savedEmail) setUserEmail(savedEmail)
-        loadAllData(savedToken)
       } else {
         setAuth(false)
         setIsDemo(false)
@@ -2717,11 +262,18 @@ export default function Page() {
         localStorage.removeItem('simple_mdq_email')
       }
     } catch {}
-  }, [loadAllData, handleSessionExpired])
+  }, [handleSessionExpired])
+
+  const loadedTokenRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (auth && !isDemo && token) {
-      loadAllData(token)
+      if (loadedTokenRef.current !== token) {
+        loadedTokenRef.current = token
+        loadAllData(token)
+      }
+    } else {
+      loadedTokenRef.current = null
     }
   }, [auth, isDemo, token, loadAllData])
 
@@ -2752,6 +304,7 @@ export default function Page() {
     setTelas(DEMO_TELAS)
     setProductos(DEMO_PRODUCTOS)
     setPresupuestos(DEMO_PRESUPUESTOS)
+    setTiposEstampado(obtenerTecnicasEstampado(null))
     setConfig({
       costo_fijo: 6000,
       multiplicador: 2.0,
@@ -2780,7 +333,7 @@ export default function Page() {
     } catch {}
   }
 
-  // Operaciones CRUD de Telas (soportan modo local en Demo y API en modo conectado)
+  // Operaciones CRUD de Telas
   const handleSaveTela = async (data: { nombre: string; precio_kilo: number; rendimiento: number; descripcion: string }) => {
     if (isDemo) {
       const isEdit = editingTela && editingTela !== 'new'
@@ -2880,11 +433,12 @@ export default function Page() {
       const costoEst = calcularCostoEstampadoDesdeConfig(
         data.tipo_estampado,
         data.consumo_estampado,
-        config
+        config,
+        tiposEstampado
       )
       const mult = config?.multiplicador ?? 2.0
       const fijo = config?.costo_fijo ?? 6000
-      const precioVenta = costoBase * mult + fijo + costoEst
+      const precioVenta = (costoBase + costoEst) * mult + fijo
       const isEdit = editingProducto && editingProducto !== 'new'
       if (isEdit) {
         setProductos(
@@ -3002,7 +556,8 @@ export default function Page() {
     cliente: string,
     mult: number,
     fijo: number,
-    items: Array<{ producto_id: number; cantidad: number }>
+    items: Array<{ producto_id: number; cantidad: number }>,
+    descripcionPdf?: string
   ) => {
     let total = 0
     for (const it of items) {
@@ -3019,6 +574,7 @@ export default function Page() {
       costo_fijo: fijo,
       precio_total: total,
       created_at: new Date().toISOString(),
+      descripcion_pdf: descripcionPdf,
     }
     setPresupuestos([nuevo, ...presupuestos])
     setPresupuestoInitialData(null)
@@ -3031,6 +587,7 @@ export default function Page() {
         cliente: p.cliente_referencia,
         multiplicador: p.multiplicador,
         costoFijo: p.costo_fijo,
+        descripcion_pdf: p.descripcion_pdf,
         items: productos.length > 0 ? [{ producto_id: productos[0].id, cantidad: 10, detalle_estampado: '' }] : [],
       })
       setView('nuevo')
@@ -3052,6 +609,7 @@ export default function Page() {
           cliente: p.cliente_referencia,
           multiplicador: p.multiplicador,
           costoFijo: p.costo_fijo,
+          descripcion_pdf: data.presupuesto?.descripcion_pdf ?? p.descripcion_pdf,
           items: detalles.map((d: any) => ({
             producto_id: d.producto_id,
             cantidad: d.cantidad,
@@ -3063,6 +621,7 @@ export default function Page() {
           cliente: p.cliente_referencia,
           multiplicador: p.multiplicador,
           costoFijo: p.costo_fijo,
+          descripcion_pdf: p.descripcion_pdf,
           items: [],
         })
       }
@@ -3071,6 +630,7 @@ export default function Page() {
         cliente: p.cliente_referencia,
         multiplicador: p.multiplicador,
         costoFijo: p.costo_fijo,
+        descripcion_pdf: p.descripcion_pdf,
         items: [],
       })
     }
@@ -3080,7 +640,7 @@ export default function Page() {
   const isSyncing =
     !isDemo &&
     auth &&
-    (loadingTelas || loadingProductos || loadingPresupuestos || loadingConfig)
+    (loadingTelas || loadingProductos || loadingPresupuestos || loadingConfig || loadingTiposEstampado)
 
   const isInitialLoading =
     isSyncing &&
@@ -3115,7 +675,8 @@ export default function Page() {
   }
 
   const displayName = getGreetingName(userEmail, isDemo)
-  const tiposEstampado = obtenerTecnicasEstampado(config)
+  const tecnicasDisponibles =
+    tiposEstampado.length > 0 ? tiposEstampado : obtenerTecnicasEstampado(config)
 
   return (
     <div className={dark ? 'app dark' : 'app'}>
@@ -3143,20 +704,20 @@ export default function Page() {
             <Menu size={18} />
           </button>
           <div className="breadcrumbs">
-            <span>Workspace</span>
+            <span>Sistema</span>
             <ChevronRight size={14} />
             <strong>
               {view === 'dashboard'
                 ? 'Dashboard'
                 : view === 'catalogo'
-                ? 'Catálogo de Productos'
+                ? 'Catálogo de Prendas'
                 : view === 'telas'
                 ? 'Telas & Rendimientos'
                 : view === 'nuevo'
-                ? 'Nuevo Presupuesto'
+                ? 'Cotizador'
                 : view === 'historial'
                 ? 'Historial de Presupuestos'
-                : 'Configuración General'}
+                : 'Configuración'}
             </strong>
           </div>
           <div className="top-actions">
@@ -3165,7 +726,7 @@ export default function Page() {
                 className={`sync-pill ${isColdStarting ? 'cold-start' : ''}`}
                 title={
                   isColdStarting
-                    ? 'El servidor en la nube se está iniciando tras un período de reposo'
+                    ? 'El servidor en la nube se está iniciando'
                     : 'Actualizando datos con el servidor'
                 }
               >
@@ -3180,7 +741,7 @@ export default function Page() {
               onClick={() => setDark(!dark)}
               aria-label="Cambiar tema"
             >
-              {dark ? <Sun size={17} /> : <Moon size={17} />}
+              {dark ? <Sun size={16} /> : <Moon size={16} />}
             </button>
             <div className="top-avatar" title={displayName}>
               {displayName.charAt(0).toUpperCase()}
@@ -3190,7 +751,7 @@ export default function Page() {
 
         <div className="page-content">
           {view === 'dashboard' ? (
-            <Dashboard
+            <DashboardView
               setView={setView}
               telas={telas}
               productos={productos}
@@ -3250,23 +811,32 @@ export default function Page() {
           ) : (
             <ConfiguracionView
               config={config}
+              tiposEstampado={tecnicasDisponibles}
               token={token}
               isDemo={isDemo}
               apiBase={API_BASE}
               onConfigActualizada={(updatedDemoConfig) => {
                 if (isDemo && updatedDemoConfig) {
                   setConfig(updatedDemoConfig)
+                  if (updatedDemoConfig.tipos_estampado) {
+                    setTiposEstampado(
+                      obtenerTecnicasEstampado(
+                        updatedDemoConfig,
+                        updatedDemoConfig.tipos_estampado
+                      )
+                    )
+                  }
                   setProductos((prev) =>
                     prev.map((p) => {
                       const cEst = calcularCostoEstampadoDesdeConfig(
                         p.tipo_estampado,
                         p.consumo_estampado,
-                        updatedDemoConfig
+                        updatedDemoConfig,
+                        updatedDemoConfig.tipos_estampado
                       )
                       const pVenta =
-                        p.costo_base * updatedDemoConfig.multiplicador +
-                        updatedDemoConfig.costo_fijo +
-                        cEst
+                        (p.costo_base + cEst) * updatedDemoConfig.multiplicador +
+                        updatedDemoConfig.costo_fijo
                       return {
                         ...p,
                         costo_estampado: cEst,
@@ -3278,6 +848,7 @@ export default function Page() {
                   return
                 }
                 fetchConfig()
+                fetchTiposEstampado()
                 fetchProductos()
               }}
               setView={setView}
@@ -3301,7 +872,7 @@ export default function Page() {
         <ModalProducto
           producto={editingProducto === 'new' ? null : editingProducto}
           telas={telas}
-          tiposEstampado={tiposEstampado}
+          tiposEstampado={tecnicasDisponibles}
           onSave={handleSaveProducto}
           onDelete={editingProducto === 'new' ? undefined : handleDeleteProducto}
           onClose={() => setEditingProducto(null)}

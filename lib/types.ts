@@ -45,6 +45,7 @@ export interface Presupuesto {
   costo_fijo: number
   precio_total: number
   created_at: string
+  descripcion_pdf?: string
 }
 
 export interface PresupuestoDetalle {
