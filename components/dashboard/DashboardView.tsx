@@ -1,154 +1,19 @@
 'use client'
 
-import React, { useEffect, useMemo, useState } from 'react'
-import {
-  ChevronRight,
-  Eye,
-  Pencil,
-  Plus,
-  RefreshCw,
-} from 'lucide-react'
-import type { Producto, Presupuesto, Tela, Configuracion } from '@/lib/types'
+import React, { useMemo } from 'react'
+import { ChevronRight, Eye, Plus, RefreshCw } from 'lucide-react'
+import type { Producto, Presupuesto, Tela, Configuracion, ViewId } from '@/lib/types'
 import { money } from '@/lib/utils'
-import { SmartNumberInput } from '@/components/ui/SmartNumberInput'
+import { Metric, type MetricProps } from '@/components/ui/Metric'
+import { CalculatorWidget, type CalculatorWidgetProps } from './CalculatorWidget'
+import { TarifasEstampaCard, type TarifasEstampaCardProps } from './TarifasEstampaCard'
 
-export interface MetricProps {
-  label: string
-  value: string
-  note: string
-  loading?: boolean
-}
-
-export function Metric({
-  label,
-  value,
-  note,
-  loading = false,
-}: MetricProps) {
-  return (
-    <div className="metric">
-      <p>{label}</p>
-      {loading ? (
-        <>
-          <div className="skeleton-box skeleton-metric-value" />
-          <div className="skeleton-box skeleton-metric-note" />
-        </>
-      ) : (
-        <>
-          <strong className="tabular-nums">{value}</strong>
-          <small>{note}</small>
-        </>
-      )}
-    </div>
-  )
-}
-
-export interface CalculatorWidgetProps {
-  productos: Producto[]
-  setView: (v: string) => void
-  loading?: boolean
-}
-
-export function CalculatorWidget({
-  productos,
-  setView,
-  loading = false,
-}: CalculatorWidgetProps) {
-  const [productId, setProductId] = useState<number>(productos[0]?.id ?? 0)
-  const [quantity, setQuantity] = useState(15)
-
-  useEffect(() => {
-    if (productos.length > 0 && (!productId || !productos.some((p) => p.id === productId))) {
-      setProductId(productos[0].id)
-    }
-  }, [productos, productId])
-
-  const product = productos.find((p) => p.id === productId) ?? productos[0]
-  const total = product ? product.precio_venta * quantity : 0
-
-  if (productos.length === 0) {
-    return (
-      <section className="card calculator">
-        <div className="section-heading">
-          <h2>Simulador Rápido</h2>
-        </div>
-        {loading ? (
-          <div className="card-loading-center">
-            <RefreshCw size={18} className="animate-spin" />
-            <p style={{ margin: 0 }}>Cargando catálogo...</p>
-          </div>
-        ) : (
-          <div className="empty-state">
-            <p>Sin modelos en catálogo</p>
-            <small style={{ display: 'block', marginBottom: '16px' }}>
-              Cargá prendas en el catálogo para simular costos.
-            </small>
-            <button className="secondary full" onClick={() => setView('telas')}>
-              Ver Telas
-            </button>
-          </div>
-        )}
-      </section>
-    )
-  }
-
-  return (
-    <section className="card calculator">
-      <div className="section-heading">
-        <h2>Simulador Rápido</h2>
-      </div>
-      <div className="form-row">
-        <label>
-          Prenda
-          <select
-            value={productId}
-            onChange={(e) => setProductId(Number(e.target.value))}
-          >
-            {productos.map((p) => (
-              <option value={p.id} key={p.id}>
-                {p.nombre}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Unidades
-          <SmartNumberInput
-            min="1"
-            value={quantity}
-            onChangeValue={(val) => setQuantity(Math.max(1, val))}
-          />
-        </label>
-      </div>
-      <div className="calc-breakdown">
-        <div>
-          <span>Costo base</span>
-          <strong className="tabular-nums">{money.format(product.costo_base)}</strong>
-        </div>
-        <div>
-          <span>Estampa ({product.tipo_estampado})</span>
-          <strong className="tabular-nums">{money.format(product.costo_estampado)}</strong>
-        </div>
-        <div>
-          <span>Unitario sugerido</span>
-          <strong className="green tabular-nums">{money.format(product.precio_venta)}</strong>
-        </div>
-      </div>
-      <div className="calc-total">
-        <span>
-          Total estimado <small>{quantity} u.</small>
-        </span>
-        <strong className="tabular-nums">{money.format(total)}</strong>
-      </div>
-      <button className="primary full" onClick={() => setView('nuevo')}>
-        <Plus size={15} /> Cotizar presupuesto
-      </button>
-    </section>
-  )
-}
+export { Metric, type MetricProps }
+export { CalculatorWidget, type CalculatorWidgetProps }
+export { TarifasEstampaCard, type TarifasEstampaCardProps }
 
 export interface DashboardViewProps {
-  setView: (v: string) => void
+  setView: (v: ViewId) => void
   telas: Tela[]
   productos: Producto[]
   presupuestos: Presupuesto[]
@@ -285,31 +150,11 @@ export function DashboardView({
             loading={loadingProductos && productos.length === 0}
           />
 
-          <section className="card supplies">
-            <div className="section-heading">
-              <h2>Tarifas de Estampa</h2>
-              <button className="icon-btn" onClick={() => setView('config')} title="Editar costos">
-                <Pencil size={15} />
-              </button>
-            </div>
-
-            {[
-              ['DTF / metro', config?.precio_metro_dtf],
-              ['Sublimación / metro', config?.precio_metro_sublimacion],
-              ['Serigrafía / unidad', config?.precio_unidad_serigrafia],
-              ['Bordado / unidad', config?.precio_unidad_bordado],
-            ].map(([name, price]) => (
-              <div className="supply" key={name as string}>
-                <span className="dot" />
-                <span>{name}</span>
-                {config === null && loadingConfig ? (
-                  <span className="skeleton-box skeleton-supply-price" />
-                ) : (
-                  <strong className="tabular-nums">{money.format(Number(price ?? 0))}</strong>
-                )}
-              </div>
-            ))}
-          </section>
+          <TarifasEstampaCard
+            config={config}
+            loadingConfig={loadingConfig}
+            onEditConfig={() => setView('config')}
+          />
         </div>
       </div>
     </>

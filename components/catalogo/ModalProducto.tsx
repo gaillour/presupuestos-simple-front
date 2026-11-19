@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react'
 import { AlertCircle, Save, Trash2, X } from 'lucide-react'
-import type { Producto, Tela, TipoEstampado } from '@/lib/types'
+import type { Producto, ProductoMutationInput, Tela, TipoEstampado } from '@/lib/types'
 import { calcularCostoTelaCombinada, normalizarTecnica } from '@/lib/pricing'
 import { money } from '@/lib/utils'
 import { SmartNumberInput } from '@/components/ui/SmartNumberInput'
@@ -11,18 +11,7 @@ export interface ModalProductoProps {
   producto?: Producto | null
   telas: Tela[]
   tiposEstampado: TipoEstampado[]
-  onSave: (data: {
-    nombre: string
-    tela_id: number
-    consumo_metros: number
-    tela_secundaria_id: number | null
-    consumo_metros_secundaria: number
-    costo_confeccion: number
-    tipo_estampado: string
-    consumo_estampado: number
-    nombre_avio: string
-    costo_avio: number
-  }) => Promise<void>
+  onSave: (data: ProductoMutationInput) => Promise<void>
   onDelete?: (id: number) => Promise<void>
   onClose: () => void
 }

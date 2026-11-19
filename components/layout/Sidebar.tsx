@@ -11,10 +11,11 @@ import {
   X,
   Zap,
 } from 'lucide-react'
+import type { ViewId } from '@/lib/types'
 
 export interface SidebarProps {
-  view: string
-  setView: (v: string) => void
+  view: ViewId | (string & {})
+  setView: (v: ViewId) => void
   onLogout: () => void
   telasCount: number
   productosCount: number
@@ -48,7 +49,7 @@ export function Sidebar({
     [Settings, 'Configuración', 'config'],
   ] as const
 
-  const handleNav = (id: string) => {
+  const handleNav = (id: ViewId) => {
     setView(id)
     onCloseMobile()
   }

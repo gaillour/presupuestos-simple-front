@@ -93,3 +93,76 @@ export interface HealthStatus {
   status: string
   service: string
 }
+
+export type ViewId = 'dashboard' | 'catalogo' | 'telas' | 'nuevo' | 'historial' | 'config'
+
+export type EditableEntity<T> = T | null | 'new'
+
+export interface TelaMutationInput {
+  nombre: string
+  precio_kilo: number
+  rendimiento: number
+  descripcion: string
+}
+
+export interface ProductoMutationInput {
+  nombre: string
+  tela_id: number
+  consumo_metros: number
+  tela_secundaria_id: number | null
+  consumo_metros_secundaria: number
+  costo_confeccion: number
+  tipo_estampado: string
+  consumo_estampado: number
+  nombre_avio: string
+  costo_avio: number
+}
+
+export interface PresupuestoDraftItem {
+  producto_id: number
+  cantidad: number
+  detalle_estampado: string
+}
+
+export interface PresupuestoDraft {
+  cliente: string
+  multiplicador: number
+  costoFijo: number
+  descripcion_pdf?: string
+  items: PresupuestoDraftItem[]
+}
+
+export interface PresupuestoCreatePayload {
+  cliente: string
+  multiplicador: number
+  costo_fijo: number
+  descripcion_pdf?: string
+  items: Array<{
+    producto_id: number
+    cantidad: number
+    detalle_estampado?: string
+  }>
+}
+
+export interface ConfiguracionUpdatePayload {
+  costo_fijo: number
+  multiplicador: number
+  precio_dtf: number
+  precio_sublimacion: number
+  precio_serigrafia: number
+  precio_bordado: number
+  descripcion_pdf: string
+  tipos_estampado: Array<{
+    id?: number
+    nombre: string
+    costo: number
+  }>
+}
+
+export interface SessionState {
+  auth: boolean
+  isDemo: boolean
+  token: string
+  userEmail: string
+  sessionNotice: string | null
+}

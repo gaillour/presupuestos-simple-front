@@ -113,3 +113,114 @@ export function calcularPrecioUnitarioProducto(
   }
   return prod.precio_venta || 0
 }
+
+export function construirProductoCalculado(
+  id: number,
+  data: {
+    nombre: string
+    tela_id: number
+    consumo_metros: number
+    tela_secundaria_id: number | null
+    consumo_metros_secundaria: number
+    costo_confeccion: number
+    tipo_estampado: string
+    consumo_estampado: number
+    nombre_avio: string
+    costo_avio: number
+  },
+  telas: Tela[],
+  config: Configuracion | null,
+  tiposEstampado?: TipoEstampado[]
+): Producto {
+  const telaObj: Tela = telas.find((t) => t.id === data.tela_id) || {
+    id: data.tela_id,
+    nombre: 'Tela Demo',
+    descripcion: '',
+    precio_kilo: 0,
+    rendimiento: 1,
+    precio_metro: 0,
+  }
+  const telaSecObj: Tela | null =
+    data.tela_secundaria_id && data.consumo_metros_secundaria > 0
+      ? telas.find((t) => t.id === data.tela_secundaria_id) || null
+      : null
+
+  const costoTela = calcularCostoTelaCombinada(
+    telaObj,
+    data.consumo_metros,
+    telaSecObj,
+    telaSecObj ? data.consumo_metros_secundaria : 0
+  )
+  const costoBase = costoTela + data.costo_confeccion + data.costo_avio
+  const costoEst = calcularCostoEstampadoDesdeConfig(
+    data.tipo_estampado,
+    data.consumo_estampado,
+    config,
+    tiposEstampado
+  )
+  const mult = config?.multiplicador ?? 2.0
+  const fijo = config?.costo_fijo ?? 6000
+  const costoProduccion = costoBase + costoEst
+  const precioVenta = costoProduccion * mult + fijo
+
+  return {
+    id,
+    ...data,
+    tela: telaObj,
+    tela_secundaria: telaSecObj,
+    consumo_metros_secundaria: telaSecObj ? data.consumo_metros_secundaria : 0,
+    costo_tela: costoTela,
+    costo_base: costoBase,
+    costo_estampado: costoEst,
+    costo_produccion: costoProduccion,
+    precio_venta: precioVenta,
+  }
+}
+
+export function recalcularCatalogoConConfig(
+  productos: Producto[],
+  config: Configuracion,
+  tiposEstampado?: TipoEstampado[]
+): Producto[] {
+  const mult = config.multiplicador ?? 2.0
+  const fijo = config.costo_fijo ?? 6000
+  const tecnicas = tiposEstampado ?? config.tipos_estampado
+
+  return productos.map((p) => {
+    const cEst = calcularCostoEstampadoDesdeConfig(
+      p.tipo_estampado,
+      p.consumo_estampado,
+      config,
+      tecnicas
+    )
+    const costoBase = p.costo_base ?? 0
+    const costoProduccion = costoBase + cEst
+    const precioVenta = costoProduccion * mult + fijo
+    return {
+      ...p,
+      costo_estampado: cEst,
+      costo_produccion: costoProduccion,
+      precio_venta: precioVenta,
+    }
+  })
+}
+
+export function calcularTotalPresupuestoItems(
+  items: Array<{ producto_id: number; cantidad: number }>,
+  productos: Producto[],
+  multiplicador: number,
+  costoFijo: number
+): { totalPrendas: number; totalPrecio: number } {
+  let totalPrendas = 0
+  let totalPrecio = 0
+
+  for (const it of items) {
+    const p = productos.find((prod) => prod.id === it.producto_id)
+    if (p) {
+      totalPrendas += it.cantidad
+      totalPrecio += calcularPrecioUnitarioProducto(p, multiplicador, costoFijo) * it.cantidad
+    }
+  }
+
+  return { totalPrendas, totalPrecio }
+}

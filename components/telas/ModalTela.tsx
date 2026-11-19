@@ -2,18 +2,13 @@
 
 import React, { useState } from 'react'
 import { AlertCircle, Save, Trash2, X } from 'lucide-react'
-import type { Tela } from '@/lib/types'
+import type { Tela, TelaMutationInput } from '@/lib/types'
 import { money } from '@/lib/utils'
 import { SmartNumberInput } from '@/components/ui/SmartNumberInput'
 
 export interface ModalTelaProps {
   tela?: Tela | null
-  onSave: (data: {
-    nombre: string
-    precio_kilo: number
-    rendimiento: number
-    descripcion: string
-  }) => Promise<void>
+  onSave: (data: TelaMutationInput) => Promise<void>
   onDelete?: (id: number) => Promise<void>
   onClose: () => void
 }

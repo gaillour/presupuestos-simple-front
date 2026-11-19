@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react'
 import { AlertCircle, Check, Eye } from 'lucide-react'
-import { API_BASE } from '@/lib/utils'
+import { authService } from '@/lib/api/services'
 
 export interface LoginViewProps {
   onLogin: (token: string, userEmail: string) => void
@@ -35,36 +35,18 @@ export function LoginView({
     setLoading(true)
 
     try {
-      const res = await fetch(`${API_BASE}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanUser, password }),
-      })
-
-      if (res.ok) {
-        const data = await res.json()
-        if (data.access_token) {
-          onLogin(data.access_token, data.user?.email || cleanUser)
-          setLoading(false)
-          return
-        }
-      } else {
-        const errorData = await res.json().catch(() => null)
-        setError(
-          errorData?.detail || 'Credenciales incorrectas. Verificá tu usuario y contraseña.'
-        )
-        setLoading(false)
+      const data = await authService.login(cleanUser, password)
+      if (data?.access_token) {
+        onLogin(data.access_token, data.user?.email || cleanUser)
         return
       }
-    } catch {
+    } catch (err: any) {
       setError(
-        'No se pudo conectar con el servidor. Si el servidor estaba suspendido, aguardá unos segundos e intentá nuevamente.'
+        err?.message || 'Credenciales incorrectas. Verificá tu usuario y contraseña.'
       )
+    } finally {
       setLoading(false)
-      return
     }
-
-    setLoading(false)
   }
 
   return (

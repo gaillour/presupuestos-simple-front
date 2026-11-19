@@ -2,9 +2,9 @@
 
 import React, { useMemo, useState } from 'react'
 import { AlertCircle, Pencil, Plus, RefreshCw, Search } from 'lucide-react'
-import type { Tela } from '@/lib/types'
+import type { Tela, ViewId } from '@/lib/types'
 import { money } from '@/lib/utils'
-import { Metric } from '@/components/dashboard/DashboardView'
+import { Metric } from '@/components/ui/Metric'
 
 export interface TelasViewProps {
   telas: Tela[]
@@ -13,7 +13,7 @@ export interface TelasViewProps {
   onReload: () => void
   onEditTela: (tela: Tela) => void
   onNewTela: () => void
-  setView: (v: string) => void
+  setView: (v: ViewId) => void
 }
 
 export function TelasView({

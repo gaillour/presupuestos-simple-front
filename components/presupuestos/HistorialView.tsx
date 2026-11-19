@@ -2,9 +2,10 @@
 
 import React, { useMemo, useState } from 'react'
 import { AlertCircle, Eye, FileDown, Plus, RefreshCw, Search } from 'lucide-react'
-import type { Presupuesto } from '@/lib/types'
-import { API_BASE, money } from '@/lib/utils'
-import { Metric } from '@/components/dashboard/DashboardView'
+import type { Presupuesto, ViewId } from '@/lib/types'
+import { money } from '@/lib/utils'
+import { getPresupuestoPdfUrl } from '@/lib/api/client'
+import { Metric } from '@/components/ui/Metric'
 
 export interface HistorialViewProps {
   presupuestos: Presupuesto[]
@@ -13,7 +14,7 @@ export interface HistorialViewProps {
   token: string
   onReload: () => void
   onSelectPresupuesto: (p: Presupuesto) => void
-  setView: (v: string) => void
+  setView: (v: ViewId) => void
 }
 
 export function HistorialView({
@@ -164,7 +165,7 @@ export function HistorialView({
                           <Eye size={13} /> Ver / Modificar
                         </button>
                         <a
-                          href={`${API_BASE}/api/presupuestos/${q.id}/pdf${token ? `?token=${encodeURIComponent(token)}` : ''}`}
+                          href={getPresupuestoPdfUrl(q.id, token)}
                           target="_blank"
                           rel="noreferrer"
                           className="icon-btn"

@@ -2,9 +2,9 @@
 
 import React, { useMemo, useState } from 'react'
 import { AlertCircle, Pencil, Plus, RefreshCw, Search } from 'lucide-react'
-import type { Producto } from '@/lib/types'
+import type { Producto, ViewId } from '@/lib/types'
 import { money } from '@/lib/utils'
-import { Metric } from '@/components/dashboard/DashboardView'
+import { Metric } from '@/components/ui/Metric'
 
 export interface CatalogoViewProps {
   productos: Producto[]
@@ -13,7 +13,7 @@ export interface CatalogoViewProps {
   onReload: () => void
   onEditProducto: (prod: Producto) => void
   onNewProducto: () => void
-  setView: (v: string) => void
+  setView: (v: ViewId) => void
 }
 
 export function CatalogoView({

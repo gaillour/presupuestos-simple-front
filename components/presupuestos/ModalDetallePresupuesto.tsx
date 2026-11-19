@@ -3,7 +3,8 @@
 import React, { useState } from 'react'
 import { FileDown, Pencil, Trash2, X } from 'lucide-react'
 import type { Presupuesto } from '@/lib/types'
-import { API_BASE, money } from '@/lib/utils'
+import { getPresupuestoPdfUrl } from '@/lib/api/client'
+import { money } from '@/lib/utils'
 
 export interface ModalDetallePresupuestoProps {
   presupuesto: Presupuesto
@@ -73,7 +74,7 @@ export function ModalDetallePresupuesto({
           </button>
 
           <a
-            href={`${API_BASE}/api/presupuestos/${presupuesto.id}/pdf${token ? `?token=${encodeURIComponent(token)}` : ''}`}
+            href={getPresupuestoPdfUrl(presupuesto.id, token)}
             target="_blank"
             rel="noreferrer"
             className="secondary full"
