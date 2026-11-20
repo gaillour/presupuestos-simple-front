@@ -63,7 +63,9 @@ export function Sidebar({
       {mobileOpen && <div className="mobile-backdrop" onClick={onCloseMobile} />}
       <aside className={mobileOpen ? 'sidebar mobile-open' : 'sidebar'}>
         <div className="logo">
-          <span className="brand-mark small">S</span>
+          <span className="brand-mark small">
+            <img src="/icon.svg" alt="SIMPLE MDQ" />
+          </span>
           <div>
             <strong>SIMPLE MDQ</strong>
             <small>COSTOS TEXTILES</small>

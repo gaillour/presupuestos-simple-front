@@ -167,19 +167,24 @@ input[type=number] {
   height: 34px;
   width: 34px;
   border-radius: 8px;
-  background: var(--color-accent);
-  color: #ffffff;
+  background: transparent;
+  overflow: hidden;
   display: grid;
   place-items: center;
-  font-size: 15px;
-  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
 }
 
 .brand-mark.small {
-  height: 30px;
-  width: 30px;
-  border-radius: 6px;
-  font-size: 13px;
+  height: 32px;
+  width: 32px;
+  border-radius: 7px;
 }
 
 .api {
@@ -1048,6 +1053,9 @@ input:focus, select:focus, textarea:focus {
 }
 
 .login-card .brand-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
   margin: 0 auto 16px;
 }
 

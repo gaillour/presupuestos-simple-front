@@ -52,7 +52,9 @@ export function LoginView({
   return (
     <main className="login-page">
       <div className="login-card">
-        <div className="brand-mark">S</div>
+        <div className="brand-mark">
+          <img src="/icon.svg" alt="SIMPLE MDQ" />
+        </div>
         <h1>SIMPLE MDQ</h1>
         <p className="muted">Costos textiles y cotizaciones</p>
 
