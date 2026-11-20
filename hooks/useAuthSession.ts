@@ -7,10 +7,42 @@ import { getGreetingName, isTokenExpired } from '@/lib/utils'
 export interface UseAuthSessionReturn {
   session: SessionState
   displayName: string
-  login: (jwtToken: string, email: string) => void
+  login: (jwtToken: string, email: string, remember?: boolean) => void
   enterDemo: () => void
   logout: () => void
   handleSessionExpired: (message?: string) => void
+}
+
+const AUTH_STORAGE_KEYS = [
+  'simple_mdq_auth',
+  'simple_mdq_token',
+  'simple_mdq_email',
+] as const
+
+function clearAuthStorages(): void {
+  if (typeof window === 'undefined') return
+  for (const storage of [window.localStorage, window.sessionStorage]) {
+    try {
+      for (const key of AUTH_STORAGE_KEYS) {
+        storage.removeItem(key)
+      }
+    } catch {}
+  }
+}
+
+function readSavedAuth(): { token: string; email: string } | null {
+  if (typeof window === 'undefined') return null
+  for (const storage of [window.localStorage, window.sessionStorage]) {
+    try {
+      const savedToken = storage.getItem('simple_mdq_token')
+      const savedAuth = storage.getItem('simple_mdq_auth')
+      const savedEmail = storage.getItem('simple_mdq_email')
+      if (savedAuth === 'true' && savedToken) {
+        return { token: savedToken, email: savedEmail || '' }
+      }
+    } catch {}
+  }
+  return null
 }
 
 export function useAuthSession(): UseAuthSessionReturn {
@@ -23,11 +55,7 @@ export function useAuthSession(): UseAuthSessionReturn {
   })
 
   const handleSessionExpired = useCallback((message?: string) => {
-    try {
-      localStorage.removeItem('simple_mdq_auth')
-      localStorage.removeItem('simple_mdq_token')
-      localStorage.removeItem('simple_mdq_email')
-    } catch {}
+    clearAuthStorages()
     setSession({
       auth: false,
       isDemo: false,
@@ -39,25 +67,21 @@ export function useAuthSession(): UseAuthSessionReturn {
 
   useEffect(() => {
     try {
-      const savedToken = localStorage.getItem('simple_mdq_token')
-      const savedAuth = localStorage.getItem('simple_mdq_auth')
-      const savedEmail = localStorage.getItem('simple_mdq_email')
-      if (savedAuth === 'true' && savedToken) {
-        if (isTokenExpired(savedToken)) {
+      const saved = readSavedAuth()
+      if (saved) {
+        if (isTokenExpired(saved.token)) {
           handleSessionExpired('Tu sesión anterior ha expirado. Por favor, ingresá nuevamente.')
           return
         }
         setSession({
           auth: true,
           isDemo: false,
-          token: savedToken,
-          userEmail: savedEmail || '',
+          token: saved.token,
+          userEmail: saved.email,
           sessionNotice: null,
         })
       } else {
-        localStorage.removeItem('simple_mdq_auth')
-        localStorage.removeItem('simple_mdq_token')
-        localStorage.removeItem('simple_mdq_email')
+        clearAuthStorages()
         setSession({
           auth: false,
           isDemo: false,
@@ -69,13 +93,15 @@ export function useAuthSession(): UseAuthSessionReturn {
     } catch {}
   }, [handleSessionExpired])
 
-  const login = useCallback((jwtToken: string, email: string) => {
+  const login = useCallback((jwtToken: string, email: string, remember = true) => {
     const activeToken = jwtToken || ''
     const activeEmail = email || 'Administrador'
+    clearAuthStorages()
     try {
-      localStorage.setItem('simple_mdq_auth', 'true')
-      if (activeToken) localStorage.setItem('simple_mdq_token', activeToken)
-      if (activeEmail) localStorage.setItem('simple_mdq_email', activeEmail)
+      const targetStorage = remember ? window.localStorage : window.sessionStorage
+      targetStorage.setItem('simple_mdq_auth', 'true')
+      if (activeToken) targetStorage.setItem('simple_mdq_token', activeToken)
+      if (activeEmail) targetStorage.setItem('simple_mdq_email', activeEmail)
     } catch {}
     setSession({
       auth: true,
@@ -97,11 +123,7 @@ export function useAuthSession(): UseAuthSessionReturn {
   }, [])
 
   const logout = useCallback(() => {
-    try {
-      localStorage.removeItem('simple_mdq_auth')
-      localStorage.removeItem('simple_mdq_token')
-      localStorage.removeItem('simple_mdq_email')
-    } catch {}
+    clearAuthStorages()
     setSession({
       auth: false,
       isDemo: false,

@@ -5,7 +5,7 @@ import { AlertCircle, Check, Eye } from 'lucide-react'
 import { authService } from '@/lib/api/services'
 
 export interface LoginViewProps {
-  onLogin: (token: string, userEmail: string) => void
+  onLogin: (token: string, userEmail: string, remember?: boolean) => void
   onEnterDemo: () => void
   notice?: string | null
 }
@@ -37,7 +37,7 @@ export function LoginView({
     try {
       const data = await authService.login(cleanUser, password)
       if (data?.access_token) {
-        onLogin(data.access_token, data.user?.email || cleanUser)
+        onLogin(data.access_token, data.user?.email || cleanUser, remember)
         return
       }
     } catch (err: any) {

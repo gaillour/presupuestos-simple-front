@@ -1,14 +1,15 @@
 'use client'
 
 import React, { useEffect, useRef, useState } from 'react'
-import { ChevronRight, Menu, Moon, RefreshCw, Sun } from 'lucide-react'
 import type { EditableEntity, Presupuesto, Producto, Tela, ViewId } from '@/lib/types'
 import { useAuthSession } from '@/hooks/useAuthSession'
 import { useConfiguracionData } from '@/hooks/useConfiguracionData'
 import { useCatalogoData } from '@/hooks/useCatalogoData'
 import { usePresupuestosData } from '@/hooks/usePresupuestosData'
+import { useTiendaData } from '@/hooks/useTiendaData'
 import { LoginView } from '@/components/auth/LoginView'
 import { Sidebar } from '@/components/layout/Sidebar'
+import { Topbar } from '@/components/layout/Topbar'
 import { DashboardView } from '@/components/dashboard/DashboardView'
 import { CatalogoView } from '@/components/catalogo/CatalogoView'
 import { ModalProducto } from '@/components/catalogo/ModalProducto'
@@ -18,14 +19,18 @@ import { NuevoPresupuestoView } from '@/components/presupuestos/NuevoPresupuesto
 import { HistorialView } from '@/components/presupuestos/HistorialView'
 import { ModalDetallePresupuesto } from '@/components/presupuestos/ModalDetallePresupuesto'
 import { ConfiguracionView } from '@/components/configuracion/ConfiguracionView'
-
-const VIEW_TITLES: Record<ViewId, string> = {
-  dashboard: 'Dashboard', catalogo: 'Catálogo de Prendas', telas: 'Telas & Rendimientos',
-  nuevo: 'Cotizador', historial: 'Historial de Presupuestos', config: 'Configuración',
-}
+import { TiendaView } from '@/components/tienda/TiendaView'
 
 export function AppShellClient(): React.JSX.Element {
   const [view, setView] = useState<ViewId>('dashboard')
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('tab') === 'tienda') {
+      setView('tienda')
+    }
+  }, [])
   const [dark, setDark] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [editingTela, setEditingTela] = useState<EditableEntity<Tela>>(null)
@@ -49,6 +54,9 @@ export function AppShellClient(): React.JSX.Element {
     token: session.token, isDemo: session.isDemo, productos: catalogoData.productos,
     onUnauthorized: auth.handleSessionExpired,
   })
+  const tiendaData = useTiendaData({
+    token: session.token, isDemo: session.isDemo, onUnauthorized: auth.handleSessionExpired,
+  })
 
   const loadedTokenRef = useRef<string | null>(null)
   useEffect(() => {
@@ -58,15 +66,17 @@ export function AppShellClient(): React.JSX.Element {
         catalogoData.fetchTelas(session.token); catalogoData.fetchProductos(session.token)
         presupuestosData.fetchPresupuestos(session.token)
         configData.fetchConfig(session.token); configData.fetchTiposEstampado(session.token)
+        tiendaData.fetchTienda(session.token)
       }
     } else {
       loadedTokenRef.current = null
     }
-  }, [session.auth, session.isDemo, session.token, catalogoData, presupuestosData, configData])
+  }, [session.auth, session.isDemo, session.token, catalogoData, presupuestosData, configData, tiendaData])
 
   const isSyncing = !session.isDemo && session.auth && (
     catalogoData.loadingTelas || catalogoData.loadingProductos ||
-    presupuestosData.loadingPresupuestos || configData.loadingConfig || configData.loadingTiposEstampado
+    presupuestosData.loadingPresupuestos || configData.loadingConfig || configData.loadingTiposEstampado ||
+    tiendaData.loading
   )
   const isInitialLoading = isSyncing &&
     catalogoData.telas.length === 0 && catalogoData.productos.length === 0 && presupuestosData.presupuestos.length === 0
@@ -82,7 +92,7 @@ export function AppShellClient(): React.JSX.Element {
       <LoginView
         onLogin={auth.login}
         onEnterDemo={() => {
-          auth.enterDemo(); configData.loadDemoConfig(); catalogoData.loadDemoCatalogo(); presupuestosData.loadDemoPresupuestos()
+          auth.enterDemo(); configData.loadDemoConfig(); catalogoData.loadDemoCatalogo(); presupuestosData.loadDemoPresupuestos(); tiendaData.loadDemoTienda()
         }}
         notice={session.sessionNotice}
       />
@@ -91,7 +101,7 @@ export function AppShellClient(): React.JSX.Element {
 
   const handleLogout = () => {
     auth.logout(); catalogoData.resetCatalogo(); presupuestosData.resetPresupuestos()
-    configData.resetConfig(); setMobileMenuOpen(false)
+    configData.resetConfig(); tiendaData.resetTienda(); setMobileMenuOpen(false)
   }
 
   return (
@@ -99,24 +109,25 @@ export function AppShellClient(): React.JSX.Element {
       <Sidebar
         view={view} setView={setView} onLogout={handleLogout}
         telasCount={catalogoData.telas.length} productosCount={catalogoData.productos.length}
-        presupuestosCount={presupuestosData.presupuestos.length} displayName={displayName}
+        presupuestosCount={presupuestosData.presupuestos.length} tiendaCount={tiendaData.productos.length}
+        displayName={displayName}
         userEmail={session.userEmail} isDemo={session.isDemo} mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
       />
       <main className="shell">
-        <header className="topbar">
-          <button type="button" className="mobile-menu icon-btn" onClick={() => setMobileMenuOpen(true)} aria-label="Desplegar barra lateral"><Menu size={18} /></button>
-          <div className="breadcrumbs"><span>Sistema</span><ChevronRight size={14} /><strong>{VIEW_TITLES[view] ?? 'Dashboard'}</strong></div>
-          <div className="top-actions">
-            {isSyncing && (
-              <div className={`sync-pill ${isColdStarting ? 'cold-start' : ''}`} title={isColdStarting ? 'El servidor en la nube se está iniciando' : 'Actualizando datos con el servidor'}>
-                <RefreshCw size={12} className="animate-spin" /><span>{isColdStarting ? 'Iniciando servidor...' : 'Sincronizando...'}</span>
-              </div>
-            )}
-            <button className="icon-btn" onClick={() => setDark(!dark)} aria-label="Cambiar tema">{dark ? <Sun size={16} /> : <Moon size={16} />}</button>
-            <div className="top-avatar" title={displayName}>{displayName.charAt(0).toUpperCase()}</div>
-          </div>
-        </header>
+        <Topbar
+          view={view}
+          dark={dark}
+          onToggleDark={() => setDark(!dark)}
+          onOpenMobileMenu={() => setMobileMenuOpen(true)}
+          isSyncing={isSyncing}
+          isColdStarting={isColdStarting}
+          displayName={displayName}
+          userEmail={session.userEmail}
+          isDemo={session.isDemo}
+          onNavigateConfig={() => setView('config')}
+          onLogout={handleLogout}
+        />
 
         <div className="page-content">
           {view === 'dashboard' ? (
@@ -130,6 +141,36 @@ export function AppShellClient(): React.JSX.Element {
             <CatalogoView
               productos={catalogoData.productos} loading={catalogoData.loadingProductos} error={catalogoData.errorProductos}
               onReload={() => catalogoData.fetchProductos()} onEditProducto={(p) => setEditingProducto(p)} onNewProducto={() => setEditingProducto('new')} setView={setView}
+            />
+          ) : view === 'tienda' ? (
+            <TiendaView
+              productos={tiendaData.productos}
+              categorias={tiendaData.categorias}
+              resumen={tiendaData.resumen}
+              movimientos={tiendaData.movimientos}
+              ventas={tiendaData.ventas}
+              ventasResumen={tiendaData.ventasResumen}
+              tnStatus={tiendaData.tnStatus}
+              loading={tiendaData.loading}
+              error={tiendaData.error}
+              umbralUltimas={tiendaData.umbralUltimas}
+              onChangeUmbralUltimas={tiendaData.setUmbralUltimas}
+              onReload={() => tiendaData.fetchTienda()}
+              onImportCsv={tiendaData.importCsv}
+              onSaveBatch={tiendaData.saveBatchUpdates}
+              onBulkPriceAdjustment={tiendaData.applyBulkPriceAdjustment}
+              onCreateProduct={tiendaData.createProduct}
+              onUpdateProduct={tiendaData.updateProduct}
+              onDeleteProduct={tiendaData.deleteProduct}
+              onUploadPhoto={tiendaData.uploadPhoto}
+              onDeletePhoto={tiendaData.deletePhoto}
+              onReorderPhotos={tiendaData.reorderPhotos}
+              onCreateCategory={tiendaData.createCategory}
+              onCreateSale={tiendaData.createSale}
+              onAnularSale={tiendaData.anularSale}
+              onPullTiendanube={tiendaData.pullFromTiendanube}
+              onRetryPending={tiendaData.retryPendingSync}
+              onConnectTiendanube={tiendaData.connectTiendanube}
             />
           ) : view === 'telas' ? (
             <TelasView

@@ -7,6 +7,7 @@ import {
   LogOut,
   Settings,
   Shirt,
+  ShoppingBag,
   Table2,
   X,
   Zap,
@@ -20,6 +21,7 @@ export interface SidebarProps {
   telasCount: number
   productosCount: number
   presupuestosCount: number
+  tiendaCount?: number
   displayName: string
   userEmail: string
   isDemo: boolean
@@ -34,6 +36,7 @@ export function Sidebar({
   telasCount,
   productosCount,
   presupuestosCount,
+  tiendaCount,
   displayName,
   userEmail,
   isDemo,
@@ -43,6 +46,7 @@ export function Sidebar({
   const items = [
     [Home, 'Dashboard', 'dashboard'],
     [Shirt, 'Productos', 'catalogo'],
+    [ShoppingBag, 'Tienda Online', 'tienda'],
     [Table2, 'Telas', 'telas'],
     [Zap, 'Cotizador', 'nuevo'],
     [FileDown, 'Historial', 'historial'],
@@ -87,6 +91,7 @@ export function Sidebar({
               <Icon size={16} />
               <span>{label}</span>
               {id === 'catalogo' && productosCount > 0 && <b>{productosCount}</b>}
+              {id === 'tienda' && (tiendaCount ?? 0) > 0 && <b>{tiendaCount}</b>}
               {id === 'telas' && telasCount > 0 && <b>{telasCount}</b>}
               {id === 'historial' && presupuestosCount > 0 && <b>{presupuestosCount}</b>}
             </button>

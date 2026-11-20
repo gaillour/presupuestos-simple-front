@@ -3,25 +3,17 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'SIMPLE MDQ - Sistema de Gestión & Cotizaciones Textiles',
-  description: 'Plataforma integral de gestión y cotización para talleres de diseño y confección textil',
-  generator: 'v0.app',
+  title: 'SIMPLE MDQ - Sistema de Gestión & Tienda Online',
+  description: 'Plataforma integral de gestión, cotización textil y catálogo Tiendanube',
   icons: {
     icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
       {
         url: '/icon.svg',
         type: 'image/svg+xml',
       },
     ],
-    apple: '/apple-icon.png',
+    shortcut: '/icon.svg',
+    apple: '/icon.svg',
   },
 }
 
